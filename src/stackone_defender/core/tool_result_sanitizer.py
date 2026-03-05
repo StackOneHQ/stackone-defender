@@ -301,3 +301,9 @@ class ToolResultSanitizer:
 
 def create_tool_result_sanitizer(**kwargs) -> ToolResultSanitizer:
     return ToolResultSanitizer(**kwargs)
+
+
+def sanitize_tool_result(value: Any, tool_name: str, **kwargs) -> SanitizationResult:
+    """Convenience: create a sanitizer and run it in one call."""
+    sanitizer = create_tool_result_sanitizer(**kwargs)
+    return sanitizer.sanitize(value, tool_name=tool_name)

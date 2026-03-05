@@ -11,6 +11,7 @@ from stackone_defender.utils.boundary import (
     wrap_with_boundary,
 )
 from stackone_defender.utils.field_detection import (
+    get_tool_override_fields,
     get_tool_rule,
     is_risky_field,
     matches_wildcard,
@@ -21,6 +22,7 @@ from stackone_defender.utils.structure import (
     detect_structure_type,
     estimate_size,
     is_paginated_response,
+    is_plain_object,
 )
 from stackone_defender.config import DEFAULT_RISKY_FIELDS, DEFAULT_TOOL_RULES
 
@@ -100,6 +102,16 @@ class TestFieldDetection:
         assert should_skip_field("thread_id", rule)
         assert not should_skip_field("body", rule)
 
+    def test_get_tool_override_fields(self):
+        overrides = DEFAULT_RISKY_FIELDS.tool_overrides
+        fields = get_tool_override_fields("gmail_get_message", overrides)
+        assert fields is not None
+        assert "subject" in fields
+
+    def test_get_tool_override_fields_no_match(self):
+        overrides = DEFAULT_RISKY_FIELDS.tool_overrides
+        assert get_tool_override_fields("unknown_tool", overrides) is None
+
 
 class TestStructure:
     def test_detect_array(self):
@@ -120,6 +132,13 @@ class TestStructure:
 
     def test_detect_null(self):
         assert detect_structure_type(None) == "null"
+
+    def test_is_plain_object(self):
+        assert is_plain_object({"key": "value"})
+        assert not is_plain_object([1, 2])
+        assert not is_plain_object(None)
+        assert not is_plain_object("string")
+        assert not is_plain_object(42)
 
     def test_is_paginated_response(self):
         assert is_paginated_response({"data": [1, 2], "next": "cursor123"})

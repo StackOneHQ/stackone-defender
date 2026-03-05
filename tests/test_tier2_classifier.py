@@ -29,3 +29,16 @@ class TestTier2ClassifierConfig:
     def test_create_factory(self):
         c = create_tier2_classifier()
         assert c.get_risk_level(0.9) == "high"
+
+    def test_get_config(self):
+        c = Tier2Classifier()
+        cfg = c.get_config()
+        assert cfg["high_risk_threshold"] == 0.8
+        assert cfg["medium_risk_threshold"] == 0.5
+        assert cfg["min_text_length"] == 10
+        assert cfg["max_text_length"] == 10000
+
+    def test_get_config_custom(self):
+        c = Tier2Classifier(config={"high_risk_threshold": 0.9})
+        cfg = c.get_config()
+        assert cfg["high_risk_threshold"] == 0.9

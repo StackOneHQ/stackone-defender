@@ -149,6 +149,18 @@ class Sanitizer:
             risk_level=risk_level,
         )
 
+    def sanitize_default(self, text: str, boundary: DataBoundary | None = None) -> FieldSanitizationResult:
+        """Convenience: sanitize with medium risk."""
+        return self.sanitize(text, risk_level="medium", boundary=boundary)
+
+    def sanitize_light(self, text: str, boundary: DataBoundary | None = None) -> FieldSanitizationResult:
+        """Convenience: sanitize with low risk."""
+        return self.sanitize(text, risk_level="low", boundary=boundary)
+
+    def sanitize_aggressive(self, text: str, boundary: DataBoundary | None = None) -> FieldSanitizationResult:
+        """Convenience: sanitize with high risk."""
+        return self.sanitize(text, risk_level="high", boundary=boundary)
+
     def _block_content(self, text: str, risk_level: RiskLevel) -> FieldSanitizationResult:
         return FieldSanitizationResult(
             original=text if self._include_original else "",

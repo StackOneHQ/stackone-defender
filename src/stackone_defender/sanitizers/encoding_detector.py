@@ -172,3 +172,9 @@ def contains_suspicious_encoding(text: str) -> bool:
 def redact_all_encoding(text: str, replacement: str = "[ENCODED DATA DETECTED]") -> str:
     result = detect_encoding(text, action="redact", redact_replacement=replacement)
     return result.processed_text or text
+
+
+def decode_all_encoding(text: str) -> str:
+    """Decode all encoded content in *text*, replacing encoded segments with their decoded form."""
+    result = detect_encoding(text, action="decode")
+    return result.processed_text or text

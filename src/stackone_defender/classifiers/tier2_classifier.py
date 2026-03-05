@@ -119,6 +119,15 @@ class Tier2Classifier:
             return False
         return result.score >= (threshold if threshold is not None else self._medium_risk_threshold)
 
+    def get_config(self) -> dict:
+        """Return a copy of the current classifier config."""
+        return {
+            "high_risk_threshold": self._high_risk_threshold,
+            "medium_risk_threshold": self._medium_risk_threshold,
+            "min_text_length": self._min_text_length,
+            "max_text_length": self._max_text_length,
+        }
+
     def get_risk_level(self, score: float) -> RiskLevel:
         if score >= self._high_risk_threshold:
             return "high"

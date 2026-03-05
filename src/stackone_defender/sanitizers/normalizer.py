@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from dataclasses import dataclass
 
 
 def normalize_unicode(text: str) -> str:
@@ -54,14 +55,40 @@ def _normalize_special_characters(text: str) -> str:
 def contains_suspicious_unicode(text: str) -> bool:
     if not text:
         return False
-    if re.search(r"[\u200b-\u200d\ufeff]", text):
-        return True
+    result = analyze_suspicious_unicode(text)
+    return result["has_suspicious"]
+
+
+@dataclass
+class SuspiciousUnicodeAnalysis:
+    has_suspicious: bool = False
+    zero_width: bool = False
+    mixed_script: bool = False
+    math_symbols: bool = False
+    fullwidth: bool = False
+
+
+def analyze_suspicious_unicode(text: str) -> dict[str, bool]:
+    """Return a detailed breakdown of suspicious Unicode in *text*.
+
+    Returns a dict with keys: has_suspicious, zero_width, mixed_script,
+    math_symbols, fullwidth.
+    """
+    if not text:
+        return {"has_suspicious": False, "zero_width": False, "mixed_script": False, "math_symbols": False, "fullwidth": False}
+
+    zero_width = bool(re.search(r"[\u200b-\u200d\ufeff]", text))
     has_cyrillic = bool(re.search(r"[\u0400-\u04ff]", text))
     has_latin = bool(re.search(r"[a-zA-Z]", text))
-    if has_cyrillic and has_latin:
-        return True
-    if re.search(r"[\U0001d400-\U0001d7ff]", text):
-        return True
-    if re.search(r"[\uff00-\uffef]", text):
-        return True
-    return False
+    mixed_script = has_cyrillic and has_latin
+    math_symbols = bool(re.search(r"[\U0001d400-\U0001d7ff]", text))
+    fullwidth = bool(re.search(r"[\uff00-\uffef]", text))
+    has_suspicious = zero_width or mixed_script or math_symbols or fullwidth
+
+    return {
+        "has_suspicious": has_suspicious,
+        "zero_width": zero_width,
+        "mixed_script": mixed_script,
+        "math_symbols": math_symbols,
+        "fullwidth": fullwidth,
+    }

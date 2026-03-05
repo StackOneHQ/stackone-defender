@@ -23,6 +23,11 @@ def is_risky_field(field_name: str, config: RiskyFieldConfig, tool_name: str | N
     return False
 
 
+def get_tool_override_fields(tool_name: str, overrides: dict[str, list[str]]) -> list[str] | None:
+    """Return override fields for *tool_name*, or None if no override matches."""
+    return _get_tool_override_fields(tool_name, overrides)
+
+
 def _get_tool_override_fields(tool_name: str, overrides: dict[str, list[str]]) -> list[str] | None:
     if tool_name in overrides:
         return overrides[tool_name]

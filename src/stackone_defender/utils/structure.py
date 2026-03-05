@@ -68,6 +68,11 @@ def update_size_metrics(metrics: SizeMetrics, value: object) -> None:
         metrics.object_count += 1
 
 
+def is_plain_object(value: object) -> bool:
+    """Check if *value* is a plain dict (not list, None, or primitive)."""
+    return isinstance(value, dict)
+
+
 def should_continue_traversal(metrics: SizeMetrics, current_depth: int, max_size: int, max_depth: int) -> bool:
     if current_depth > max_depth:
         metrics.depth_limit_hit = True
