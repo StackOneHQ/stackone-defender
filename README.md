@@ -8,13 +8,13 @@ Python port of [@stackone/defender](https://github.com/StackOneHQ/defender).
 ## Installation
 
 ```bash
-pip install stackone-defender
+uv add stackone-defender
 ```
 
 For Tier 2 ML classification (ONNX):
 
 ```bash
-pip install stackone-defender[onnx]
+uv add stackone-defender[onnx]
 ```
 
 The ONNX model (~22MB) is bundled in the package — no extra downloads needed.
