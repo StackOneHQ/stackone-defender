@@ -55,7 +55,7 @@ class PromptDefense:
         if block_high_risk:
             self._config.block_high_risk = True
 
-        tool_rules = self._config.tool_rules if use_default_tool_rules else []
+        tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
 
         self._tool_sanitizer: ToolResultSanitizer = create_tool_result_sanitizer(
             risky_fields=self._config.risky_fields,
@@ -120,7 +120,20 @@ class PromptDefense:
         tier2_idx = _RISK_LEVELS.index(tier2_risk)
         risk_level = _RISK_LEVELS[max(tier1_idx, tier2_idx)]
 
-        allowed = not self._config.block_high_risk or risk_level not in ("high", "critical")
+        # Determine whether any threat signals were found (Tier 1 or Tier 2).
+        # fields_sanitized captures sanitization methods (role stripping, encoding detection, etc.)
+        # that may fire without adding named pattern detections, so we include it here.
+        has_threats = (
+            len(detections) > 0
+            or len(fields_sanitized) > 0
+            or (tier2_score is not None and tier2_score >= self._config.tier2.high_risk_threshold)
+        )
+
+        # Three cases for allowed:
+        # 1. block_high_risk is off -> always allow
+        # 2. No threat signals found -> allow (base risk from tool rules alone does not block)
+        # 3. Risk did not reach high/critical -> allow
+        allowed = not self._config.block_high_risk or not has_threats or risk_level not in ("high", "critical")
 
         return DefenseResult(
             allowed=allowed,
