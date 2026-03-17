@@ -102,6 +102,7 @@ class PromptDefense:
 
         # Tier 2: ML classification on raw value
         tier2_score: float | None = None
+        tier2_skip_reason: str | None = None
         max_sentence: str | None = None
         tier2_risk: RiskLevel = "low"
 
@@ -114,6 +115,10 @@ class PromptDefense:
                     tier2_score = t2_result["score"]
                     tier2_risk = self._tier2.get_risk_level(tier2_score)
                     max_sentence = t2_result.get("max_sentence")
+                else:
+                    tier2_skip_reason = t2_result.get("skip_reason")
+            else:
+                tier2_skip_reason = "No strings extracted from tool result"
 
         # Combine risk levels
         tier1_idx = _RISK_LEVELS.index(sanitized.metadata.overall_risk_level)
@@ -143,6 +148,7 @@ class PromptDefense:
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
             tier2_score=tier2_score,
+            tier2_skip_reason=tier2_skip_reason,
             max_sentence=max_sentence,
             latency_ms=(time.perf_counter() - start_time) * 1000,
         )
