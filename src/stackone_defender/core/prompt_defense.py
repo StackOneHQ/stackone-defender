@@ -90,8 +90,6 @@ class PromptDefense:
             tool_rules=tool_rules,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
-            use_tier2_classification=False,
-            tier2_config=tier2_config,
             block_high_risk=block_high_risk,
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
         )

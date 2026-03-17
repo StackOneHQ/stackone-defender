@@ -11,7 +11,6 @@ import time
 from typing import Any
 
 from ..classifiers.pattern_detector import PatternDetector, create_pattern_detector
-from ..classifiers.tier2_classifier import Tier2Classifier, create_tier2_classifier
 from ..config import DEFAULT_CUMULATIVE_RISK_THRESHOLDS, DEFAULT_RISKY_FIELDS, DEFAULT_TOOL_RULES, DEFAULT_TRAVERSAL_CONFIG
 from ..sanitizers.sanitizer import Sanitizer, create_sanitizer
 from ..types import (
@@ -49,8 +48,6 @@ class ToolResultSanitizer:
         tool_rules: list[ToolSanitizationRule] | None = None,
         default_risk_level: RiskLevel = "medium",
         use_tier1_classification: bool = True,
-        use_tier2_classification: bool = False,
-        tier2_config: dict | None = None,
         block_high_risk: bool = False,
         cumulative_risk_thresholds: dict[str, int] | None = None,
     ):
@@ -59,22 +56,11 @@ class ToolResultSanitizer:
         self._tool_rules = tool_rules if tool_rules is not None else list(DEFAULT_TOOL_RULES)
         self._default_risk_level = default_risk_level
         self._use_tier1 = use_tier1_classification
-        self._use_tier2 = use_tier2_classification
         self._block_high_risk = block_high_risk
         self._cumulative_thresholds = cumulative_risk_thresholds or dict(DEFAULT_CUMULATIVE_RISK_THRESHOLDS)
 
         self._sanitizer: Sanitizer = create_sanitizer()
         self._pattern_detector: PatternDetector = create_pattern_detector()
-        self._tier2: Tier2Classifier | None = None
-        if use_tier2_classification:
-            self._tier2 = create_tier2_classifier(tier2_config)
-
-    def warmup_tier2(self) -> None:
-        if self._tier2:
-            self._tier2.warmup()
-
-    def is_tier2_ready(self) -> bool:
-        return self._tier2.is_ready() if self._tier2 else False
 
     def sanitize(self, value: Any, *, tool_name: str, vertical: str | None = None, resource: str | None = None, risk_level: RiskLevel | None = None, boundary: DataBoundary | None = None) -> SanitizationResult:
         start_time = time.perf_counter()
