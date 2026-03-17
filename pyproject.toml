@@ -1,19 +1,38 @@
 [project]
 name = "stackone-defender"
 version = "0.1.0"
-description = "Prompt injection defense for AI tool-calling"
+description = "Indirect prompt injection defense for AI agents using tool calls"
+readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "StackOne", email = "support@stackone.com" }]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Security",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/StackOneHQ/stackone-defender"
+Repository = "https://github.com/StackOneHQ/stackone-defender"
 
 [project.optional-dependencies]
 onnx = ["onnxruntime>=1.16.0", "tokenizers>=0.15.0", "numpy>=1.24.0"]
 
-[tool.uv]
-dev-dependencies = [
-    "pytest>=8.0",
-    "onnxruntime>=1.16.0",
-    "tokenizers>=0.15.0",
-    "numpy>=1.24.0",
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "onnxruntime>=1.16.0",
+  "tokenizers>=0.15.0",
+  "numpy>=1.24.0",
 ]
 
 [build-system]
