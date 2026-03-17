@@ -101,7 +101,6 @@ DEFAULT_TOOL_RULES: list[ToolSanitizationRule] = [
 DEFAULT_CUMULATIVE_RISK_THRESHOLDS = {"medium": 3, "high": 1, "patterns": 3}
 
 DEFAULT_TIER2_CONFIG = Tier2Config(
-    enabled=False,
     high_risk_threshold=0.8,
     medium_risk_threshold=0.5,
     skip_below_size=50,
@@ -126,7 +125,6 @@ def create_config(overrides: dict | None = None) -> PromptDefenseConfig:
             tool_rules=list(DEFAULT_TOOL_RULES),
             cumulative_risk_thresholds=dict(DEFAULT_CUMULATIVE_RISK_THRESHOLDS),
             tier2=Tier2Config(
-                enabled=DEFAULT_TIER2_CONFIG.enabled,
                 high_risk_threshold=DEFAULT_TIER2_CONFIG.high_risk_threshold,
                 medium_risk_threshold=DEFAULT_TIER2_CONFIG.medium_risk_threshold,
                 skip_below_size=DEFAULT_TIER2_CONFIG.skip_below_size,

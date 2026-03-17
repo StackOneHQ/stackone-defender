@@ -16,19 +16,42 @@ from ..types import DefenseResult, PromptDefenseConfig, RiskLevel, Tier1Result
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 
-def _extract_strings(obj: Any) -> list[str]:
-    """Recursively extract all string values from an object."""
+def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
+    """Recursively extract all string values from an object.
+
+    If `fields` is None or an empty list, all string values are collected recursively.
+    When `fields` is a non-empty list, only strings under matching field keys are
+    collected; the traversal still descends into non-matching keys to find matching
+    ones deeper.
+    """
     strings: list[str] = []
 
-    def traverse(value: Any) -> None:
+    def collect_all(value: Any) -> None:
         if isinstance(value, str):
             strings.append(value)
         elif isinstance(value, list):
             for item in value:
-                traverse(item)
+                collect_all(item)
         elif isinstance(value, dict):
             for v in value.values():
-                traverse(v)
+                collect_all(v)
+
+    if fields is None or len(fields) == 0:
+        collect_all(obj)
+        return strings
+
+    field_set = set(fields)
+
+    def traverse(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                traverse(item)
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                if k in field_set:
+                    collect_all(v)
+                else:
+                    traverse(v)
 
     traverse(obj)
     return strings
@@ -45,15 +68,18 @@ class PromptDefense:
         *,
         config: dict | None = None,
         enable_tier1: bool = True,
-        enable_tier2: bool = False,
+        enable_tier2: bool = True,
         tier2_config: dict | None = None,
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
         use_default_tool_rules: bool = False,
+        tier2_fields: list[str] | None = None,
     ):
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
+
+        self._tier2_fields = self._config.tier2.tier2_fields if tier2_fields is None else tier2_fields
 
         tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
 
@@ -63,8 +89,6 @@ class PromptDefense:
             tool_rules=tool_rules,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
-            use_tier2_classification=False,
-            tier2_config=tier2_config,
             block_high_risk=block_high_risk,
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
         )
@@ -102,11 +126,12 @@ class PromptDefense:
 
         # Tier 2: ML classification on raw value
         tier2_score: float | None = None
+        tier2_skip_reason: str | None = None
         max_sentence: str | None = None
         tier2_risk: RiskLevel = "low"
 
         if self._tier2:
-            strings = _extract_strings(value)
+            strings = _extract_strings(value, self._tier2_fields)
             combined = "\n\n".join(strings)
             if combined:
                 t2_result = self._tier2.classify_by_sentence(combined)
@@ -114,6 +139,14 @@ class PromptDefense:
                     tier2_score = t2_result["score"]
                     tier2_risk = self._tier2.get_risk_level(tier2_score)
                     max_sentence = t2_result.get("max_sentence")
+                else:
+                    tier2_skip_reason = t2_result.get("skip_reason")
+            else:
+                tier2_skip_reason = (
+                    "No strings found in tier2_fields"
+                    if self._tier2_fields
+                    else "No strings extracted from tool result"
+                )
 
         # Combine risk levels
         tier1_idx = _RISK_LEVELS.index(sanitized.metadata.overall_risk_level)
@@ -143,6 +176,7 @@ class PromptDefense:
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
             tier2_score=tier2_score,
+            tier2_skip_reason=tier2_skip_reason,
             max_sentence=max_sentence,
             latency_ms=(time.perf_counter() - start_time) * 1000,
         )
