@@ -69,7 +69,7 @@ class PromptDefense:
         *,
         config: dict | None = None,
         enable_tier1: bool = True,
-        enable_tier2: bool = False,
+        enable_tier2: bool = True,
         tier2_config: dict | None = None,
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
