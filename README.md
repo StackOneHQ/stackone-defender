@@ -1,7 +1,30 @@
-# stackone-defender
+<div align="center">
+
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/StackOneHQ/defender/main/assets/banner-dark.svg" />
+    <img src="https://raw.githubusercontent.com/StackOneHQ/defender/main/assets/banner-light.svg" alt="Defender by StackOne — Indirect prompt injection protection for MCP tool calls" width="800" />
+  </picture>
+
+  <p>
+    <a href="https://pypi.org/project/stackone-defender/"><img src="https://img.shields.io/pypi/v/stackone-defender?style=flat-square&color=047B43&label=pypi" alt="PyPI version" /></a>
+    <a href="https://pypi.org/project/stackone-defender/"><img src="https://img.shields.io/pypi/dm/stackone-defender?style=flat-square&color=047B43&label=downloads" alt="PyPI downloads" /></a>
+    <a href="https://github.com/StackOneHQ/defender-python/releases"><img src="https://img.shields.io/github/v/release/StackOneHQ/defender-python?style=flat-square&color=047B43&label=release" alt="latest release" /></a>
+    <a href="https://github.com/StackOneHQ/defender-python/stargazers"><img src="https://img.shields.io/github/stars/StackOneHQ/defender-python?style=flat-square&color=047B43" alt="GitHub stars" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/pypi/l/stackone-defender?style=flat-square&color=047B43" alt="License" /></a>
+    <img src="https://img.shields.io/badge/Python-3.10+-047B43?style=flat-square" alt="Python 3.10+" />
+  </p>
+  <p>
+    <img src="https://img.shields.io/badge/model-22MB-047B43?style=flat-square" alt="Model size: 22MB" />
+    <img src="https://img.shields.io/badge/latency-~10ms-047B43?style=flat-square" alt="Latency: ~10ms" />
+    <img src="https://img.shields.io/badge/CPU--only-no%20GPU%20needed-047B43?style=flat-square" alt="CPU only" />
+    <img src="https://img.shields.io/badge/F1%20Score-90.8%25-047B43?style=flat-square" alt="F1 Score: 90.8%" />
+  </p>
+
+</div>
 
 ---
-Prompt injection defense framework for AI tool-calling. Detects and neutralizes prompt injection attacks hidden in tool results (emails, documents, PRs, etc.) before they reach your LLM.
+
+Indirect prompt injection defense and protection for AI agents using tool calls (via MCP, CLI or direct function calling). Detects and neutralizes prompt injection attacks hidden in tool results (emails, documents, PRs, etc.) before they reach your LLM.
 
 Python port of [@stackone/defender](https://github.com/StackOneHQ/defender).
 
@@ -198,16 +221,6 @@ Tools not matching any pattern use `medium` base risk with default risky field d
 
 ```bash
 uv run pytest
-```
-
-### Git LFS
-
-The ONNX model source files are stored with [Git LFS](https://git-lfs.com/). Contributors working on the model files need LFS installed:
-
-```bash
-brew install git-lfs
-git lfs install
-git lfs pull  # if you cloned before LFS was set up
 ```
 
 ## License
