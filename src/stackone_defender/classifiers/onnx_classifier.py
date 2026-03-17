@@ -26,12 +26,15 @@ class OnnxClassifier:
         self._session = None
         self._tokenizer = None
         self._max_length = 256
+        self._load_failed = False
 
     def load_model(self, model_path: str | None = None) -> None:
         if model_path:
             self._model_path = model_path
         if self._session is not None and self._tokenizer is not None:
             return
+        if self._load_failed:
+            raise ImportError("ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]")
         self._load_model()
 
     def _load_model(self) -> None:
@@ -40,6 +43,7 @@ class OnnxClassifier:
             import onnxruntime as ort
             from tokenizers import Tokenizer
         except ImportError as e:
+            self._load_failed = True
             raise ImportError(
                 "ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]"
             ) from e

@@ -19,8 +19,10 @@ from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanit
 def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
     """Recursively extract all string values from an object.
 
-    When `fields` is provided, only strings under matching field keys are collected;
-    the traversal still descends into non-matching keys to find matching ones deeper.
+    If `fields` is None or an empty list, all string values are collected recursively.
+    When `fields` is a non-empty list, only strings under matching field keys are
+    collected; the traversal still descends into non-matching keys to find matching
+    ones deeper.
     """
     strings: list[str] = []
 
@@ -34,7 +36,7 @@ def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
             for v in value.values():
                 collect_all(v)
 
-    if not fields:
+    if fields is None or len(fields) == 0:
         collect_all(obj)
         return strings
 
@@ -50,9 +52,6 @@ def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
                     collect_all(v)
                 else:
                     traverse(v)
-        elif isinstance(value, str):
-            # Plain string — no field keys to filter on, fall back to collecting it
-            strings.append(value)
 
     traverse(obj)
     return strings
@@ -80,7 +79,7 @@ class PromptDefense:
         if block_high_risk:
             self._config.block_high_risk = True
 
-        self._tier2_fields = tier2_fields or self._config.tier2.tier2_fields
+        self._tier2_fields = self._config.tier2.tier2_fields if tier2_fields is None else tier2_fields
 
         tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
 
