@@ -171,6 +171,7 @@ class Tier2Config:
     min_text_length: int = 10
     max_text_length: int = 10000
     onnx_model_path: str | None = None
+    tier2_fields: list[str] | None = None
 
 
 @dataclass

@@ -16,19 +16,43 @@ from ..types import DefenseResult, PromptDefenseConfig, RiskLevel, Tier1Result
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 
-def _extract_strings(obj: Any) -> list[str]:
-    """Recursively extract all string values from an object."""
+def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
+    """Recursively extract all string values from an object.
+
+    When `fields` is provided, only strings under matching field keys are collected;
+    the traversal still descends into non-matching keys to find matching ones deeper.
+    """
     strings: list[str] = []
 
-    def traverse(value: Any) -> None:
+    def collect_all(value: Any) -> None:
         if isinstance(value, str):
             strings.append(value)
         elif isinstance(value, list):
             for item in value:
-                traverse(item)
+                collect_all(item)
         elif isinstance(value, dict):
             for v in value.values():
-                traverse(v)
+                collect_all(v)
+
+    if not fields:
+        collect_all(obj)
+        return strings
+
+    field_set = set(fields)
+
+    def traverse(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
+                traverse(item)
+        elif isinstance(value, dict):
+            for k, v in value.items():
+                if k in field_set:
+                    collect_all(v)
+                else:
+                    traverse(v)
+        elif isinstance(value, str):
+            # Plain string — no field keys to filter on, fall back to collecting it
+            strings.append(value)
 
     traverse(obj)
     return strings
@@ -50,10 +74,13 @@ class PromptDefense:
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
         use_default_tool_rules: bool = False,
+        tier2_fields: list[str] | None = None,
     ):
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
+
+        self._tier2_fields = tier2_fields or self._config.tier2.tier2_fields
 
         tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
 
@@ -107,7 +134,7 @@ class PromptDefense:
         tier2_risk: RiskLevel = "low"
 
         if self._tier2:
-            strings = _extract_strings(value)
+            strings = _extract_strings(value, self._tier2_fields)
             combined = "\n\n".join(strings)
             if combined:
                 t2_result = self._tier2.classify_by_sentence(combined)
@@ -118,7 +145,11 @@ class PromptDefense:
                 else:
                     tier2_skip_reason = t2_result.get("skip_reason")
             else:
-                tier2_skip_reason = "No strings extracted from tool result"
+                tier2_skip_reason = (
+                    "No strings found in tier2_fields"
+                    if self._tier2_fields
+                    else "No strings extracted from tool result"
+                )
 
         # Combine risk levels
         tier1_idx = _RISK_LEVELS.index(sanitized.metadata.overall_risk_level)
