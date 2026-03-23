@@ -92,7 +92,8 @@ class Tier2Classifier:
             if len(sentence) < self._min_text_length:
                 continue
             try:
-                score = self._onnx.classify(sentence)
+                truncated = sentence[: self._max_text_length] if len(sentence) > self._max_text_length else sentence
+                score = self._onnx.classify(truncated)
                 sentence_scores.append({"sentence": sentence, "score": score})
                 if score > max_score:
                     max_score = score
