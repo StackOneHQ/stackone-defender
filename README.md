@@ -50,7 +50,6 @@ from stackone_defender import create_prompt_defense
 # Create defense with Tier 1 (patterns) + Tier 2 (ML classifier)
 # block_high_risk=True enables the allowed/blocked decision
 defense = create_prompt_defense(
-    enable_tier2=True,
     block_high_risk=True,
     use_default_tool_rules=True,  # Enable built-in per-tool base risk and field-handling rules
 )
@@ -137,7 +136,7 @@ Create a defense instance.
 ```python
 defense = create_prompt_defense(
     enable_tier1=True,             # Pattern detection (default: True)
-    enable_tier2=True,             # ML classification (default: False)
+    enable_tier2=True,             # ML classification (default: True)
     block_high_risk=True,          # Block high/critical content (default: False)
     use_default_tool_rules=True,   # Enable built-in per-tool base risk and field-handling rules (default: False)
     default_risk_level="medium",
@@ -194,7 +193,7 @@ print(result.matches)         # [PatternMatch(pattern='...', severity='high', ..
 ONNX mode auto-loads the bundled model on first `defend_tool_result()` call. Use `warmup_tier2()` at startup to avoid first-call latency:
 
 ```python
-defense = create_prompt_defense(enable_tier2=True)
+defense = create_prompt_defense()
 defense.warmup_tier2()  # optional, avoids ~1-2s first-call latency
 ```
 
