@@ -16,22 +16,49 @@ from ..types import DefenseResult, PromptDefenseConfig, RiskLevel, Tier1Result
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 
-def _extract_strings(obj: Any) -> list[str]:
-    """Recursively extract all string values from an object."""
-    strings: list[str] = []
+def _collect_all_strings(value: Any, out: list[str]) -> None:
+    """Collect every string under value (full depth)."""
+    if isinstance(value, str):
+        out.append(value)
+    elif isinstance(value, list):
+        for item in value:
+            _collect_all_strings(item, out)
+    elif isinstance(value, dict):
+        for v in value.values():
+            _collect_all_strings(v, out)
 
-    def traverse(value: Any) -> None:
-        if isinstance(value, str):
-            strings.append(value)
-        elif isinstance(value, list):
-            for item in value:
+
+def _extract_strings(value: Any, fields: list[str] | None) -> list[str]:
+    """Extract strings for Tier 2.
+
+    If ``fields`` is None or empty, collect all strings. Otherwise traverse the
+    structure: for each dict, only subtrees whose key is in ``fields`` contribute
+    strings via full-depth collection; other keys are traversed recursively.
+    Root-level strings are always collected when filtering (Node parity).
+    """
+    if not fields:
+        out: list[str] = []
+        _collect_all_strings(value, out)
+        return out
+
+    field_set = set(fields)
+    out: list[str] = []
+
+    def traverse(v: Any) -> None:
+        if isinstance(v, list):
+            for item in v:
                 traverse(item)
-        elif isinstance(value, dict):
-            for v in value.values():
-                traverse(v)
+        elif isinstance(v, dict):
+            for k, child in v.items():
+                if k in field_set:
+                    _collect_all_strings(child, out)
+                else:
+                    traverse(child)
+        elif isinstance(v, str):
+            out.append(v)
 
-    traverse(obj)
-    return strings
+    traverse(value)
+    return out
 
 
 _RISK_LEVELS: list[RiskLevel] = ["low", "medium", "high", "critical"]
@@ -47,6 +74,7 @@ class PromptDefense:
         enable_tier1: bool = True,
         enable_tier2: bool = True,
         tier2_config: dict | None = None,
+        tier2_fields: list[str] | None = None,
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
         use_default_tool_rules: bool = False,
@@ -54,6 +82,8 @@ class PromptDefense:
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
+
+        self._tier2_fields = tier2_fields
 
         tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
 
@@ -104,16 +134,34 @@ class PromptDefense:
         tier2_score: float | None = None
         max_sentence: str | None = None
         tier2_risk: RiskLevel = "low"
+        tier2_skip_reason: str | None = None
 
         if self._tier2:
-            strings = _extract_strings(value)
+            opts_explicit = self._tier2_fields if self._tier2_fields is not None else self._config.tier2.tier2_fields
+            if opts_explicit is not None:
+                fields_for_tier2 = None if len(opts_explicit) == 0 else opts_explicit
+            elif sanitized.metadata.risky_field_names:
+                fields_for_tier2 = sanitized.metadata.risky_field_names
+            else:
+                fields_for_tier2 = None
+
+            strings = _extract_strings(value, fields_for_tier2)
             combined = "\n\n".join(strings)
-            if combined:
+            if not combined:
+                if opts_explicit is not None and len(opts_explicit) > 0:
+                    tier2_skip_reason = "No strings found in tier2_fields"
+                elif sanitized.metadata.risky_field_names:
+                    tier2_skip_reason = "No strings found in Tier 1 risky fields"
+                else:
+                    tier2_skip_reason = "No strings extracted from tool result"
+            else:
                 t2_result = self._tier2.classify_by_sentence(combined)
                 if not t2_result.get("skipped", True):
                     tier2_score = t2_result["score"]
                     tier2_risk = self._tier2.get_risk_level(tier2_score)
                     max_sentence = t2_result.get("max_sentence")
+                else:
+                    tier2_skip_reason = t2_result.get("skip_reason")
 
         # Combine risk levels
         tier1_idx = _RISK_LEVELS.index(sanitized.metadata.overall_risk_level)
@@ -145,6 +193,7 @@ class PromptDefense:
             tier2_score=tier2_score,
             max_sentence=max_sentence,
             latency_ms=(time.perf_counter() - start_time) * 1000,
+            tier2_skip_reason=tier2_skip_reason,
         )
 
     def defend_tool_results(self, items: list[dict[str, Any]]) -> list[DefenseResult]:

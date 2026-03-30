@@ -97,6 +97,7 @@ class ToolResultSanitizer:
         metadata = SanitizationMetadata(
             overall_risk_level=context.risk_level,
             size_metrics=size_metrics,
+            risky_field_names=[],
         )
 
         sanitized = self._sanitize_value(value, context, tool_rule, metadata, 0)
@@ -107,6 +108,7 @@ class ToolResultSanitizer:
 
         metadata.total_latency_ms = (time.perf_counter() - start_time) * 1000
         metadata.size_metrics = size_metrics
+        metadata.risky_field_names = list(dict.fromkeys(metadata.risky_field_names))
         return SanitizationResult(sanitized=sanitized, metadata=metadata)
 
     # ------------------------------------------------------------------
@@ -178,6 +180,7 @@ class ToolResultSanitizer:
                 continue
 
             if self._is_field_risky(key, context.tool_name) and isinstance(val, str):
+                metadata.risky_field_names.append(key)
                 result[key] = self._sanitize_string_field(val, field_ctx, tool_rule, metadata)
             else:
                 result[key] = self._sanitize_value(val, field_ctx, tool_rule, metadata, depth + 1)

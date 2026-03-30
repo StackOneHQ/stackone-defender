@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from stackone_defender.classifiers import onnx_classifier as onnx_classifier_mod
 from stackone_defender.classifiers.onnx_classifier import OnnxClassifier
 from stackone_defender.classifiers.tier2_classifier import Tier2Classifier
 
@@ -55,6 +56,15 @@ class TestOnnxClassifier:
 
     def test_is_loaded(self):
         assert self.classifier.is_loaded()
+
+    def test_module_cache_shares_session_across_instances(self):
+        onnx_classifier_mod._session_cache.clear()
+        c1 = OnnxClassifier(_MODEL_PATH)
+        c2 = OnnxClassifier(_MODEL_PATH)
+        c1.load_model()
+        c2.load_model()
+        assert c1._session is c2._session
+        assert c1._tokenizer is c2._tokenizer
 
 
 @skip_no_model

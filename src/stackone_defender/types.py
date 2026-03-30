@@ -121,6 +121,8 @@ class SanitizationMetadata:
     cumulative_risk_escalated: bool = False
     total_latency_ms: float = 0.0
     size_metrics: SizeMetrics = field(default_factory=SizeMetrics)
+    # Leaf dict keys Tier 1 identified as risky string fields (for Tier 2 scoping).
+    risky_field_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -172,6 +174,8 @@ class Tier2Config:
     min_text_length: int = 10
     max_text_length: int = 10000
     onnx_model_path: str | None = None
+    # If set and non-empty, Tier 2 only sees strings under these keys; None falls back to Tier 1 risky keys or all strings.
+    tier2_fields: list[str] | None = None
 
 
 @dataclass
@@ -197,3 +201,4 @@ class DefenseResult:
     tier2_score: float | None = None
     max_sentence: str | None = None
     latency_ms: float = 0.0
+    tier2_skip_reason: str | None = None

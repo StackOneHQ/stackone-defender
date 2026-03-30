@@ -5,8 +5,14 @@ Pipeline: text -> tokenizer -> ONNX Runtime -> logit -> sigmoid -> score
 
 from __future__ import annotations
 
+import logging
 import math
 from pathlib import Path
+
+_logger = logging.getLogger(__name__)
+
+# Shared across all OnnxClassifier instances (keyed by resolved model dir path).
+_session_cache: dict[str, tuple[object, object]] = {}
 
 
 def _default_model_path() -> str:
@@ -35,22 +41,35 @@ class OnnxClassifier:
         self._load_model()
 
     def _load_model(self) -> None:
+        cache_key = str(Path(self._model_path).resolve())
+        cached = _session_cache.get(cache_key)
+        if cached:
+            self._session, self._tokenizer = cached
+            return
+
         try:
             import numpy as np  # noqa: F401
             import onnxruntime as ort
             from tokenizers import Tokenizer
         except ImportError as e:
+            _logger.warning("[defender] ONNX model failed to load: %s", e)
             raise ImportError(
                 "ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]"
             ) from e
 
-        tokenizer_path = str(Path(self._model_path) / "tokenizer.json")
-        self._tokenizer = Tokenizer.from_file(tokenizer_path)
-        self._tokenizer.enable_truncation(max_length=self._max_length)
-        self._tokenizer.enable_padding(length=self._max_length)
+        try:
+            tokenizer_path = str(Path(self._model_path) / "tokenizer.json")
+            self._tokenizer = Tokenizer.from_file(tokenizer_path)
+            self._tokenizer.enable_truncation(max_length=self._max_length)
+            self._tokenizer.enable_padding(length=self._max_length)
 
-        onnx_path = str(Path(self._model_path) / "model_quantized.onnx")
-        self._session = ort.InferenceSession(onnx_path)
+            onnx_path = str(Path(self._model_path) / "model_quantized.onnx")
+            self._session = ort.InferenceSession(onnx_path)
+        except Exception as e:
+            _logger.warning("[defender] ONNX model failed to load: %s", e)
+            raise
+
+        _session_cache[cache_key] = (self._session, self._tokenizer)
 
     def classify(self, text: str) -> float:
         """Classify a single text, returning a sigmoid score in [0, 1]."""
