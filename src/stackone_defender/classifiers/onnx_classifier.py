@@ -11,7 +11,7 @@ from pathlib import Path
 
 def _default_model_path() -> str:
     """Return path to the bundled ONNX model directory."""
-    return str(Path(__file__).resolve().parent.parent.parent.parent / "models" / "minilm-full-aug")
+    return str(Path(__file__).resolve().parent.parent / "models" / "minilm-full-aug")
 
 
 def _sigmoid(x: float) -> float:
