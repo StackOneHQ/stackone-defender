@@ -12,12 +12,13 @@ Usage:
 """
 
 from .core.prompt_defense import PromptDefense, create_prompt_defense
-from .types import DefenseResult, RiskLevel, Tier1Result
+from .types import DefenseResult, RiskLevel, Tier1Result, ToolSanitizationRule
 
 __all__ = [
     "DefenseResult",
     "PromptDefense",
     "RiskLevel",
     "Tier1Result",
+    "ToolSanitizationRule",
     "create_prompt_defense",
 ]

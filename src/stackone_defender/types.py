@@ -167,7 +167,6 @@ class ToolSanitizationRule:
 
 @dataclass
 class Tier2Config:
-    enabled: bool = False
     high_risk_threshold: float = 0.8
     medium_risk_threshold: float = 0.5
     skip_below_size: int = 50
@@ -199,6 +198,6 @@ class DefenseResult:
     fields_sanitized: list[str]
     patterns_by_field: dict[str, list[str]]
     tier2_score: float | None = None
+    tier2_skip_reason: str | None = None
     max_sentence: str | None = None
     latency_ms: float = 0.0
-    tier2_skip_reason: str | None = None

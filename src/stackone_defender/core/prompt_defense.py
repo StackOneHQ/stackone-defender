@@ -16,49 +16,45 @@ from ..types import DefenseResult, PromptDefenseConfig, RiskLevel, Tier1Result
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 
-def _collect_all_strings(value: Any, out: list[str]) -> None:
-    """Collect every string under value (full depth)."""
-    if isinstance(value, str):
-        out.append(value)
-    elif isinstance(value, list):
-        for item in value:
-            _collect_all_strings(item, out)
-    elif isinstance(value, dict):
-        for v in value.values():
-            _collect_all_strings(v, out)
+def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
+    """Recursively extract string values from an object for Tier 2.
 
-
-def _extract_strings(value: Any, fields: list[str] | None) -> list[str]:
-    """Extract strings for Tier 2.
-
-    If ``fields`` is None or empty, collect all strings. Otherwise traverse the
-    structure: for each dict, only subtrees whose key is in ``fields`` contribute
-    strings via full-depth collection; other keys are traversed recursively.
-    Root-level strings are always collected when filtering (Node parity).
+    If ``fields`` is None or empty, all strings are collected. Otherwise only
+    strings under matching dict keys are collected (via full-depth ``collect_all``);
+    non-matching keys are traversed recursively without collecting string leaves
+    under them (matches post-ENG-12518 TypeScript behavior).
     """
-    if not fields:
-        out: list[str] = []
-        _collect_all_strings(value, out)
-        return out
+    strings: list[str] = []
+
+    def collect_all(value: Any) -> None:
+        if isinstance(value, str):
+            strings.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                collect_all(item)
+        elif isinstance(value, dict):
+            for v in value.values():
+                collect_all(v)
+
+    if fields is None or len(fields) == 0:
+        collect_all(obj)
+        return strings
 
     field_set = set(fields)
-    out: list[str] = []
 
-    def traverse(v: Any) -> None:
-        if isinstance(v, list):
-            for item in v:
+    def traverse(value: Any) -> None:
+        if isinstance(value, list):
+            for item in value:
                 traverse(item)
-        elif isinstance(v, dict):
-            for k, child in v.items():
+        elif isinstance(value, dict):
+            for k, v in value.items():
                 if k in field_set:
-                    _collect_all_strings(child, out)
+                    collect_all(v)
                 else:
-                    traverse(child)
-        elif isinstance(v, str):
-            out.append(v)
+                    traverse(v)
 
-    traverse(value)
-    return out
+    traverse(obj)
+    return strings
 
 
 _RISK_LEVELS: list[RiskLevel] = ["low", "medium", "high", "critical"]
@@ -93,8 +89,6 @@ class PromptDefense:
             tool_rules=tool_rules,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
-            use_tier2_classification=False,
-            tier2_config=tier2_config,
             block_high_risk=block_high_risk,
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
         )
@@ -191,9 +185,9 @@ class PromptDefense:
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
             tier2_score=tier2_score,
+            tier2_skip_reason=tier2_skip_reason,
             max_sentence=max_sentence,
             latency_ms=(time.perf_counter() - start_time) * 1000,
-            tier2_skip_reason=tier2_skip_reason,
         )
 
     def defend_tool_results(self, items: list[dict[str, Any]]) -> list[DefenseResult]:

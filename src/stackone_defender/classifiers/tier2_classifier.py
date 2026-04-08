@@ -87,6 +87,7 @@ class Tier2Classifier:
         sentence_scores: list[dict[str, Any]] = []
         max_score = 0.0
         max_sentence = ""
+        last_error: Exception | None = None
 
         for sentence in sentences:
             if len(sentence) < self._min_text_length:
@@ -98,11 +99,12 @@ class Tier2Classifier:
                 if score > max_score:
                     max_score = score
                     max_sentence = sentence
-            except Exception:
-                pass
+            except Exception as e:
+                last_error = e
 
         if not sentence_scores:
-            return {"score": 0, "confidence": 0, "skipped": True, "skip_reason": "No classifiable sentences", "latency_ms": _ms(start)}
+            skip_reason = f"Classification error: {last_error}" if last_error else "No classifiable sentences"
+            return {"score": 0, "confidence": 0, "skipped": True, "skip_reason": skip_reason, "latency_ms": _ms(start)}
 
         confidence = abs(max_score - 0.5) * 2
         return {
