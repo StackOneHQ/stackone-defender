@@ -121,6 +121,8 @@ class SanitizationMetadata:
     cumulative_risk_escalated: bool = False
     total_latency_ms: float = 0.0
     size_metrics: SizeMetrics = field(default_factory=SizeMetrics)
+    # Leaf dict keys Tier 1 identified as risky string fields (for Tier 2 scoping).
+    risky_field_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -154,16 +156,6 @@ class TraversalConfig:
 
 
 @dataclass
-class ToolSanitizationRule:
-    tool_pattern: str | re.Pattern
-    risky_fields: list[str] | None = None
-    sanitization_level: RiskLevel | None = None
-    max_field_lengths: dict[str, int] | None = None
-    skip_fields: list[str] | None = None
-    cumulative_risk_thresholds: dict[str, int] | None = None
-
-
-@dataclass
 class Tier2Config:
     high_risk_threshold: float = 0.8
     medium_risk_threshold: float = 0.5
@@ -171,6 +163,7 @@ class Tier2Config:
     min_text_length: int = 10
     max_text_length: int = 10000
     onnx_model_path: str | None = None
+    # If set and non-empty, Tier 2 only sees strings under these keys; None falls back to Tier 1 risky keys or all strings.
     tier2_fields: list[str] | None = None
 
 
@@ -178,7 +171,6 @@ class Tier2Config:
 class PromptDefenseConfig:
     risky_fields: RiskyFieldConfig = field(default_factory=RiskyFieldConfig)
     traversal: TraversalConfig = field(default_factory=TraversalConfig)
-    tool_rules: list[ToolSanitizationRule] = field(default_factory=list)
     cumulative_risk_thresholds: dict[str, int] = field(
         default_factory=lambda: {"medium": 3, "high": 1, "patterns": 3}
     )

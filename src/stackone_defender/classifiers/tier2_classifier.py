@@ -84,26 +84,35 @@ class Tier2Classifier:
         if not sentences:
             return {"score": 0, "confidence": 0, "skipped": True, "skip_reason": "No sentences found", "latency_ms": _ms(start)}
 
-        sentence_scores: list[dict[str, Any]] = []
-        max_score = 0.0
-        max_sentence = ""
-        last_error: Exception | None = None
-
+        original_sentences: list[str] = []
+        classifiable: list[str] = []
         for sentence in sentences:
             if len(sentence) < self._min_text_length:
                 continue
-            try:
-                score = self._onnx.classify(sentence)
-                sentence_scores.append({"sentence": sentence, "score": score})
-                if score > max_score:
-                    max_score = score
-                    max_sentence = sentence
-            except Exception as e:
-                last_error = e
+            original_sentences.append(sentence)
+            classifiable.append(
+                sentence[: self._max_text_length] if len(sentence) > self._max_text_length else sentence
+            )
 
-        if not sentence_scores:
-            skip_reason = f"Classification error: {last_error}" if last_error else "No classifiable sentences"
-            return {"score": 0, "confidence": 0, "skipped": True, "skip_reason": skip_reason, "latency_ms": _ms(start)}
+        if not classifiable:
+            return {"score": 0, "confidence": 0, "skipped": True, "skip_reason": "No classifiable sentences", "latency_ms": _ms(start)}
+
+        try:
+            scores = self._onnx.classify_batch(classifiable)
+        except Exception as e:
+            return {
+                "score": 0, "confidence": 0, "skipped": True,
+                "skip_reason": f"Classification error: {e}", "latency_ms": _ms(start),
+            }
+
+        sentence_scores: list[dict[str, Any]] = []
+        max_score = 0.0
+        max_sentence = ""
+        for sentence, score in zip(original_sentences, scores, strict=True):
+            sentence_scores.append({"sentence": sentence, "score": score})
+            if score > max_score:
+                max_score = score
+                max_sentence = sentence
 
         confidence = abs(max_score - 0.5) * 2
         return {

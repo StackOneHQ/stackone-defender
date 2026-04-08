@@ -17,12 +17,12 @@ from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanit
 
 
 def _extract_strings(obj: Any, fields: list[str] | None = None) -> list[str]:
-    """Recursively extract all string values from an object.
+    """Recursively extract string values from an object for Tier 2.
 
-    If `fields` is None or an empty list, all string values are collected recursively.
-    When `fields` is a non-empty list, only strings under matching field keys are
-    collected; the traversal still descends into non-matching keys to find matching
-    ones deeper.
+    If ``fields`` is None or empty, all strings are collected. Otherwise only
+    strings under matching dict keys are collected (via full-depth ``collect_all``);
+    non-matching keys are traversed recursively without collecting string leaves
+    under them (matches post-ENG-12518 TypeScript behavior).
     """
     strings: list[str] = []
 
@@ -70,23 +70,19 @@ class PromptDefense:
         enable_tier1: bool = True,
         enable_tier2: bool = True,
         tier2_config: dict | None = None,
+        tier2_fields: list[str] | None = None,
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
-        use_default_tool_rules: bool = False,
-        tier2_fields: list[str] | None = None,
     ):
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
 
-        self._tier2_fields = self._config.tier2.tier2_fields if tier2_fields is None else tier2_fields
-
-        tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
+        self._tier2_fields = tier2_fields
 
         self._tool_sanitizer: ToolResultSanitizer = create_tool_result_sanitizer(
             risky_fields=self._config.risky_fields,
             traversal=self._config.traversal,
-            tool_rules=tool_rules,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
             block_high_risk=block_high_risk,
@@ -126,14 +122,29 @@ class PromptDefense:
 
         # Tier 2: ML classification on raw value
         tier2_score: float | None = None
-        tier2_skip_reason: str | None = None
         max_sentence: str | None = None
         tier2_risk: RiskLevel = "low"
+        tier2_skip_reason: str | None = None
 
         if self._tier2:
-            strings = _extract_strings(value, self._tier2_fields)
+            opts_explicit = self._tier2_fields if self._tier2_fields is not None else self._config.tier2.tier2_fields
+            if opts_explicit is not None:
+                fields_for_tier2 = None if len(opts_explicit) == 0 else opts_explicit
+            elif sanitized.metadata.risky_field_names:
+                fields_for_tier2 = sanitized.metadata.risky_field_names
+            else:
+                fields_for_tier2 = None
+
+            strings = _extract_strings(value, fields_for_tier2)
             combined = "\n\n".join(strings)
-            if combined:
+            if not combined:
+                if opts_explicit is not None and len(opts_explicit) > 0:
+                    tier2_skip_reason = "No strings found in tier2_fields"
+                elif sanitized.metadata.risky_field_names:
+                    tier2_skip_reason = "No strings found in Tier 1 risky fields"
+                else:
+                    tier2_skip_reason = "No strings extracted from tool result"
+            else:
                 t2_result = self._tier2.classify_by_sentence(combined)
                 if not t2_result.get("skipped", True):
                     tier2_score = t2_result["score"]
@@ -141,12 +152,6 @@ class PromptDefense:
                     max_sentence = t2_result.get("max_sentence")
                 else:
                     tier2_skip_reason = t2_result.get("skip_reason")
-            else:
-                tier2_skip_reason = (
-                    "No strings found in tier2_fields"
-                    if self._tier2_fields
-                    else "No strings extracted from tool result"
-                )
 
         # Combine risk levels
         tier1_idx = _RISK_LEVELS.index(sanitized.metadata.overall_risk_level)

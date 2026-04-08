@@ -12,10 +12,8 @@ from stackone_defender.utils.boundary import (
 )
 from stackone_defender.utils.field_detection import (
     get_tool_override_fields,
-    get_tool_rule,
     is_risky_field,
     matches_wildcard,
-    should_skip_field,
 )
 from stackone_defender.utils.structure import (
     create_size_metrics,
@@ -24,7 +22,7 @@ from stackone_defender.utils.structure import (
     is_paginated_response,
     is_plain_object,
 )
-from stackone_defender.config import DEFAULT_RISKY_FIELDS, DEFAULT_TOOL_RULES
+from stackone_defender.config import DEFAULT_RISKY_FIELDS
 
 
 class TestBoundary:
@@ -83,24 +81,6 @@ class TestFieldDetection:
         assert matches_wildcard("gmail_get_message", "gmail_*")
         assert matches_wildcard("documents_list_files", "documents_*")
         assert not matches_wildcard("hris_list_employees", "gmail_*")
-
-    def test_get_tool_rule(self):
-        rule = get_tool_rule("gmail_get_message", DEFAULT_TOOL_RULES)
-        assert rule is not None
-        assert rule.sanitization_level == "high"
-
-        rule = get_tool_rule("documents_list_files", DEFAULT_TOOL_RULES)
-        assert rule is not None
-        assert rule.sanitization_level == "medium"
-
-        rule = get_tool_rule("unknown_tool", DEFAULT_TOOL_RULES)
-        assert rule is None
-
-    def test_should_skip_field(self):
-        rule = get_tool_rule("gmail_get_message", DEFAULT_TOOL_RULES)
-        assert should_skip_field("id", rule)
-        assert should_skip_field("thread_id", rule)
-        assert not should_skip_field("body", rule)
 
     def test_get_tool_override_fields(self):
         overrides = DEFAULT_RISKY_FIELDS.tool_overrides

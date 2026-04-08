@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from ..classifiers.pattern_detector import PatternDetector, create_pattern_detector
-from ..config import DEFAULT_CUMULATIVE_RISK_THRESHOLDS, DEFAULT_RISKY_FIELDS, DEFAULT_TOOL_RULES, DEFAULT_TRAVERSAL_CONFIG
+from ..config import DEFAULT_CUMULATIVE_RISK_THRESHOLDS, DEFAULT_RISKY_FIELDS, DEFAULT_TRAVERSAL_CONFIG
 from ..sanitizers.sanitizer import Sanitizer, create_sanitizer
 from ..types import (
     CumulativeRiskTracker,
@@ -22,11 +22,10 @@ from ..types import (
     SanitizationMetadata,
     SanitizationResult,
     SizeMetrics,
-    ToolSanitizationRule,
     TraversalConfig,
 )
 from ..utils.boundary import generate_data_boundary
-from ..utils.field_detection import get_tool_rule, is_risky_field, should_skip_field
+from ..utils.field_detection import is_risky_field
 from ..utils.structure import (
     create_size_metrics,
     detect_structure_type,
@@ -45,7 +44,6 @@ class ToolResultSanitizer:
         *,
         risky_fields: RiskyFieldConfig | None = None,
         traversal: TraversalConfig | None = None,
-        tool_rules: list[ToolSanitizationRule] | None = None,
         default_risk_level: RiskLevel = "medium",
         use_tier1_classification: bool = True,
         block_high_risk: bool = False,
@@ -53,7 +51,6 @@ class ToolResultSanitizer:
     ):
         self._risky_fields = risky_fields or DEFAULT_RISKY_FIELDS
         self._traversal = traversal or DEFAULT_TRAVERSAL_CONFIG
-        self._tool_rules = tool_rules if tool_rules is not None else list(DEFAULT_TOOL_RULES)
         self._default_risk_level = default_risk_level
         self._use_tier1 = use_tier1_classification
         self._block_high_risk = block_high_risk
@@ -65,8 +62,7 @@ class ToolResultSanitizer:
     def sanitize(self, value: Any, *, tool_name: str, vertical: str | None = None, resource: str | None = None, risk_level: RiskLevel | None = None, boundary: DataBoundary | None = None) -> SanitizationResult:
         start_time = time.perf_counter()
         boundary = boundary or generate_data_boundary()
-        tool_rule = get_tool_rule(tool_name, self._tool_rules)
-        cumulative_risk = self._create_cumulative_tracker(tool_rule)
+        cumulative_risk = self._create_cumulative_tracker()
         size_metrics = create_size_metrics()
 
         context = SanitizationContext(
@@ -75,7 +71,7 @@ class ToolResultSanitizer:
             tool_name=tool_name,
             vertical=vertical or self._extract_vertical(tool_name),
             resource=resource or self._extract_resource(tool_name),
-            risk_level=risk_level or (tool_rule.sanitization_level if tool_rule and tool_rule.sanitization_level else self._default_risk_level),
+            risk_level=risk_level or self._default_risk_level,
             boundary=boundary,
             cumulative_risk=cumulative_risk,
         )
@@ -83,9 +79,10 @@ class ToolResultSanitizer:
         metadata = SanitizationMetadata(
             overall_risk_level=context.risk_level,
             size_metrics=size_metrics,
+            risky_field_names=[],
         )
 
-        sanitized = self._sanitize_value(value, context, tool_rule, metadata, 0)
+        sanitized = self._sanitize_value(value, context, metadata, 0)
 
         if self._should_escalate(cumulative_risk):
             metadata.cumulative_risk_escalated = True
@@ -93,25 +90,26 @@ class ToolResultSanitizer:
 
         metadata.total_latency_ms = (time.perf_counter() - start_time) * 1000
         metadata.size_metrics = size_metrics
+        metadata.risky_field_names = list(dict.fromkeys(metadata.risky_field_names))
         return SanitizationResult(sanitized=sanitized, metadata=metadata)
 
     # ------------------------------------------------------------------
     # Recursive traversal
     # ------------------------------------------------------------------
 
-    def _sanitize_value(self, value: Any, context: SanitizationContext, tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata, depth: int) -> Any:
+    def _sanitize_value(self, value: Any, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> Any:
         update_size_metrics(metadata.size_metrics, value)
         if not should_continue_traversal(metadata.size_metrics, depth, self._traversal.max_size, self._traversal.max_depth):
             return value
         if value is None:
             return value
         if isinstance(value, list):
-            return self._sanitize_array(value, context, tool_rule, metadata, depth)
+            return self._sanitize_array(value, context, metadata, depth)
         if isinstance(value, dict):
-            return self._sanitize_object(value, context, tool_rule, metadata, depth)
+            return self._sanitize_object(value, context, metadata, depth)
         return value
 
-    def _sanitize_array(self, arr: list, context: SanitizationContext, tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata, depth: int) -> list:
+    def _sanitize_array(self, arr: list, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> list:
         metadata.size_metrics.array_count += 1
 
         if self._traversal.skip_large_arrays and len(arr) > self._traversal.large_array_threshold:
@@ -124,7 +122,7 @@ class ToolResultSanitizer:
                     resource=context.resource, risk_level=context.risk_level,
                     boundary=context.boundary, cumulative_risk=context.cumulative_risk,
                 )
-                sanitized.append(self._sanitize_value(arr[i], ctx, tool_rule, metadata, depth + 1))
+                sanitized.append(self._sanitize_value(arr[i], ctx, metadata, depth + 1))
             if len(arr) > sample_size:
                 sanitized.append(f"[{len(arr) - sample_size} more items - sanitization skipped for performance]")
             return sanitized
@@ -137,17 +135,17 @@ class ToolResultSanitizer:
                 resource=context.resource, risk_level=context.risk_level,
                 boundary=context.boundary, cumulative_risk=context.cumulative_risk,
             )
-            result.append(self._sanitize_value(item, ctx, tool_rule, metadata, depth + 1))
+            result.append(self._sanitize_value(item, ctx, metadata, depth + 1))
         return result
 
-    def _sanitize_object(self, obj: dict, context: SanitizationContext, tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata, depth: int) -> dict:
+    def _sanitize_object(self, obj: dict, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> dict:
         metadata.size_metrics.object_count += 1
 
         if is_paginated_response(obj):
-            return self._sanitize_paginated(obj, context, tool_rule, metadata, depth)
+            return self._sanitize_paginated(obj, context, metadata, depth)
 
         if detect_structure_type(obj) == "wrapped":
-            return self._sanitize_wrapped(obj, context, tool_rule, metadata, depth)
+            return self._sanitize_wrapped(obj, context, metadata, depth)
 
         result = {}
         for key, val in obj.items():
@@ -159,17 +157,14 @@ class ToolResultSanitizer:
                 boundary=context.boundary, cumulative_risk=context.cumulative_risk,
             )
 
-            if should_skip_field(key, tool_rule):
-                result[key] = val
-                continue
-
             if self._is_field_risky(key, context.tool_name) and isinstance(val, str):
-                result[key] = self._sanitize_string_field(val, field_ctx, tool_rule, metadata)
+                metadata.risky_field_names.append(key)
+                result[key] = self._sanitize_string_field(val, field_ctx, metadata)
             else:
-                result[key] = self._sanitize_value(val, field_ctx, tool_rule, metadata, depth + 1)
+                result[key] = self._sanitize_value(val, field_ctx, metadata, depth + 1)
         return result
 
-    def _sanitize_paginated(self, obj: dict, context: SanitizationContext, tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata, depth: int) -> dict:
+    def _sanitize_paginated(self, obj: dict, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> dict:
         result = dict(obj)
         for key in ("data", "results", "items", "records"):
             if key in obj and isinstance(obj[key], list):
@@ -179,11 +174,11 @@ class ToolResultSanitizer:
                     resource=context.resource, risk_level=context.risk_level,
                     boundary=context.boundary, cumulative_risk=context.cumulative_risk,
                 )
-                result[key] = self._sanitize_array(obj[key], ctx, tool_rule, metadata, depth + 1)
+                result[key] = self._sanitize_array(obj[key], ctx, metadata, depth + 1)
                 break
         return result
 
-    def _sanitize_wrapped(self, obj: dict, context: SanitizationContext, tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata, depth: int) -> dict:
+    def _sanitize_wrapped(self, obj: dict, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> dict:
         result = {}
         for key, val in obj.items():
             field_path = f"{context.path}.{key}" if context.path else key
@@ -195,16 +190,16 @@ class ToolResultSanitizer:
             )
             wrapped = get_wrapped_data({key: val})
             if wrapped is not None:
-                result[key] = self._sanitize_array(val, field_ctx, tool_rule, metadata, depth + 1)
+                result[key] = self._sanitize_array(val, field_ctx, metadata, depth + 1)
             else:
-                result[key] = self._sanitize_value(val, field_ctx, tool_rule, metadata, depth + 1)
+                result[key] = self._sanitize_value(val, field_ctx, metadata, depth + 1)
         return result
 
     # ------------------------------------------------------------------
     # String field sanitization
     # ------------------------------------------------------------------
 
-    def _sanitize_string_field(self, value: str, context: SanitizationContext, _tool_rule: ToolSanitizationRule | None, metadata: SanitizationMetadata) -> str:
+    def _sanitize_string_field(self, value: str, context: SanitizationContext, metadata: SanitizationMetadata) -> str:
         metadata.size_metrics.string_count += 1
         risk_level = context.risk_level
         tier1_patterns: list[str] = []
@@ -246,9 +241,8 @@ class ToolResultSanitizer:
     def _is_field_risky(self, field_name: str, tool_name: str) -> bool:
         return is_risky_field(field_name, self._risky_fields, tool_name)
 
-    def _create_cumulative_tracker(self, tool_rule: ToolSanitizationRule | None) -> CumulativeRiskTracker:
-        thresholds = (tool_rule.cumulative_risk_thresholds if tool_rule and tool_rule.cumulative_risk_thresholds else self._cumulative_thresholds)
-        return CumulativeRiskTracker(escalation_threshold=dict(thresholds))
+    def _create_cumulative_tracker(self) -> CumulativeRiskTracker:
+        return CumulativeRiskTracker(escalation_threshold=dict(self._cumulative_thresholds))
 
     @staticmethod
     def _update_cumulative_risk(tracker: CumulativeRiskTracker, risk_level: RiskLevel, patterns: list[str]) -> None:
