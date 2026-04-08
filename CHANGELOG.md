@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.2](https://github.com/StackOneHQ/stackone-defender/compare/stackone-defender-v0.1.1...stackone-defender-v0.1.2) (2026-04-08)
+
+
+### Bug Fixes
+
+* upgrade ML classifier to jbv2 (AgentShield 73.7 → 79.8) ([b452b39](https://github.com/StackOneHQ/stackone-defender/commit/b452b39c718329355f50c418bd50c37da2ed8698))
+
+
+### Documentation
+
+* update README to reflect changes in package name and Python version ([d2fc2ca](https://github.com/StackOneHQ/stackone-defender/commit/d2fc2ca1900e2f6410df2ec075c5a8a1c3ac241b))
+
 ## [0.1.1](https://github.com/StackOneHQ/stackone-defender/compare/stackone-defender-v0.1.0...stackone-defender-v0.1.1) (2026-04-08)
 
 
