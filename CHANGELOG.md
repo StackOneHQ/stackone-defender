@@ -1,12 +1,31 @@
 # Changelog
 
-## [Unreleased]
+## [0.1.1](https://github.com/StackOneHQ/stackone-defender/compare/stackone-defender-v0.1.0...stackone-defender-v0.1.1) (2026-04-08)
 
-### ⚠ BREAKING CHANGES
-
-- Removed per-tool sanitization rules (`ToolSanitizationRule`, `tool_rules` on config and sanitizer, `use_default_tool_rules`, `get_tool_rule`, `should_skip_field`). Behavior matches `@stackone/defender` after removal of tool rules (ENG-12594). Base risk for sanitization comes from `default_risk_level` and Tier 1 outcomes only; cumulative thresholds use `PromptDefenseConfig.cumulative_risk_thresholds`.
 
 ### Features
 
-- Tier 2 `classify_by_sentence` now runs sentence scores in a single ONNX `classify_batch` call (parity with TypeScript).
-- ONNX model load uses a per-model path lock so concurrent `load_model` calls share one load and the session cache.
+* add missing functions for full TS API parity ([aec0c5b](https://github.com/StackOneHQ/stackone-defender/commit/aec0c5b8d31715df7e4ec2e4d306b55d595bb1c3))
+* add PyPI publishing setup with Release Please CI ([2e28373](https://github.com/StackOneHQ/stackone-defender/commit/2e28373a27315dbb5e7deb23621977fe7fa2f7bc))
+* add tier2_fields filter and export ToolSanitizationRule ([cb7fd93](https://github.com/StackOneHQ/stackone-defender/commit/cb7fd93fb88a30f40edc171ef3fcdc5d6ce2534d))
+* **ENG-12402:** add PyPI publishing setup with Release Please CI ([f979748](https://github.com/StackOneHQ/stackone-defender/commit/f979748a8a3b2084ea241c352866adcfcd0145ea))
+* port stackone-defender from TypeScript to Python ([e3ff70d](https://github.com/StackOneHQ/stackone-defender/commit/e3ff70dd6a0bc94578dc4dbfde87c5d75f00b7b8))
+* **sanitizer:** remove dead use_tier2_classification from ToolResultSanitizer ([4646179](https://github.com/StackOneHQ/stackone-defender/commit/46461798fcf5acc6ac6e23bc65177c35d9353d9c))
+* sync Python package with TypeScript parity ([e1836dd](https://github.com/StackOneHQ/stackone-defender/commit/e1836dd967ad23997983ef1607118d1a25807e1c))
+
+
+### Bug Fixes
+
+* **classifier:** surface classification errors in classify_by_sentence skip_reason ([bd94639](https://github.com/StackOneHQ/stackone-defender/commit/bd9463978dac5572f999d8ec3ed1adbaf0bb97f2))
+* **defender:** fix _extract_strings filtering, None checks, and cache ONNX load failure ([bf4ce99](https://github.com/StackOneHQ/stackone-defender/commit/bf4ce993287db9e067b661100b5bd92cc21aef6b))
+* **defender:** sync hasThreats blocking logic and tool rules precedence from JS package ([a217c3e](https://github.com/StackOneHQ/stackone-defender/commit/a217c3ef27aa0e4d92f21571bf0559ff9906f660))
+* enable tier2 by default to match TypeScript package ([f1fe990](https://github.com/StackOneHQ/stackone-defender/commit/f1fe990e1a81c32cb271f6ca85cc063f3da49223))
+* sync Python with TypeScript parity ([cec0813](https://github.com/StackOneHQ/stackone-defender/commit/cec0813ff8cc98f4502d5916d285a28877983d98))
+* use uv instead of pip in README installation instructions ([519759f](https://github.com/StackOneHQ/stackone-defender/commit/519759f09c6fc1eb6bf97f53ad0cbd25c78e2893))
+
+
+### Documentation
+
+* add README adapted from TypeScript package ([a03c757](https://github.com/StackOneHQ/stackone-defender/commit/a03c757a1760b797d9a3ef444950e2839ca1c52d))
+
+## Changelog
