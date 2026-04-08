@@ -4,13 +4,7 @@ from __future__ import annotations
 
 import re
 
-from .types import (
-    PromptDefenseConfig,
-    RiskyFieldConfig,
-    Tier2Config,
-    ToolSanitizationRule,
-    TraversalConfig,
-)
+from .types import PromptDefenseConfig, RiskyFieldConfig, Tier2Config, TraversalConfig
 
 DEFAULT_RISKY_FIELDS = RiskyFieldConfig(
     field_names=[
@@ -57,47 +51,6 @@ DEFAULT_TRAVERSAL_CONFIG = TraversalConfig(
     skip_large_arrays=True,
 )
 
-DEFAULT_TOOL_RULES: list[ToolSanitizationRule] = [
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^documents_"),
-        sanitization_level="medium",
-        max_field_lengths={"name": 500, "description": 2000, "content": 100000},
-        skip_fields=["id", "url", "size", "created_at", "updated_at", "mime_type"],
-        cumulative_risk_thresholds={"medium": 2, "high": 1, "patterns": 2},
-    ),
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^hris_"),
-        sanitization_level="medium",
-        max_field_lengths={"name": 200, "notes": 2000, "bio": 5000},
-        skip_fields=["id", "employee_id", "created_at", "updated_at"],
-    ),
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^ats_"),
-        sanitization_level="medium",
-        max_field_lengths={"name": 200, "notes": 5000, "description": 2000, "summary": 2000},
-        skip_fields=["id", "candidate_id", "application_id", "created_at", "updated_at"],
-    ),
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^crm_"),
-        sanitization_level="medium",
-        max_field_lengths={"name": 200, "description": 2000, "notes": 5000, "content": 10000},
-        skip_fields=["id", "contact_id", "account_id", "created_at", "updated_at"],
-    ),
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^gmail_|^email_"),
-        sanitization_level="high",
-        max_field_lengths={"subject": 500, "body": 100000, "snippet": 1000},
-        skip_fields=["id", "thread_id", "message_id", "date"],
-        cumulative_risk_thresholds={"medium": 2, "high": 1, "patterns": 2},
-    ),
-    ToolSanitizationRule(
-        tool_pattern=re.compile(r"^github_"),
-        sanitization_level="medium",
-        max_field_lengths={"name": 500, "description": 5000, "body": 100000, "content": 100000},
-        skip_fields=["id", "sha", "url", "html_url", "created_at", "updated_at"],
-    ),
-]
-
 DEFAULT_CUMULATIVE_RISK_THRESHOLDS = {"medium": 3, "high": 1, "patterns": 3}
 
 DEFAULT_TIER2_CONFIG = Tier2Config(
@@ -109,7 +62,6 @@ DEFAULT_TIER2_CONFIG = Tier2Config(
 DEFAULT_CONFIG = PromptDefenseConfig(
     risky_fields=DEFAULT_RISKY_FIELDS,
     traversal=DEFAULT_TRAVERSAL_CONFIG,
-    tool_rules=DEFAULT_TOOL_RULES,
     cumulative_risk_thresholds=DEFAULT_CUMULATIVE_RISK_THRESHOLDS,
     tier2=DEFAULT_TIER2_CONFIG,
     block_high_risk=False,
@@ -122,12 +74,15 @@ def create_config(overrides: dict | None = None) -> PromptDefenseConfig:
         return PromptDefenseConfig(
             risky_fields=DEFAULT_RISKY_FIELDS,
             traversal=DEFAULT_TRAVERSAL_CONFIG,
-            tool_rules=list(DEFAULT_TOOL_RULES),
             cumulative_risk_thresholds=dict(DEFAULT_CUMULATIVE_RISK_THRESHOLDS),
             tier2=Tier2Config(
                 high_risk_threshold=DEFAULT_TIER2_CONFIG.high_risk_threshold,
                 medium_risk_threshold=DEFAULT_TIER2_CONFIG.medium_risk_threshold,
                 skip_below_size=DEFAULT_TIER2_CONFIG.skip_below_size,
+                min_text_length=DEFAULT_TIER2_CONFIG.min_text_length,
+                max_text_length=DEFAULT_TIER2_CONFIG.max_text_length,
+                onnx_model_path=DEFAULT_TIER2_CONFIG.onnx_model_path,
+                tier2_fields=DEFAULT_TIER2_CONFIG.tier2_fields,
             ),
             block_high_risk=False,
         )
@@ -137,8 +92,6 @@ def create_config(overrides: dict | None = None) -> PromptDefenseConfig:
         config.block_high_risk = overrides["block_high_risk"]
     if "cumulative_risk_thresholds" in overrides:
         config.cumulative_risk_thresholds.update(overrides["cumulative_risk_thresholds"])
-    if "tool_rules" in overrides:
-        config.tool_rules = overrides["tool_rules"]
     if "tier2" in overrides:
         t2 = overrides["tier2"]
         if isinstance(t2, dict):

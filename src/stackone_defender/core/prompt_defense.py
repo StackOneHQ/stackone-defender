@@ -73,7 +73,6 @@ class PromptDefense:
         tier2_fields: list[str] | None = None,
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "medium",
-        use_default_tool_rules: bool = False,
     ):
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
@@ -81,12 +80,9 @@ class PromptDefense:
 
         self._tier2_fields = tier2_fields
 
-        tool_rules = (config or {}).get("tool_rules") or (self._config.tool_rules if use_default_tool_rules else [])
-
         self._tool_sanitizer: ToolResultSanitizer = create_tool_result_sanitizer(
             risky_fields=self._config.risky_fields,
             traversal=self._config.traversal,
-            tool_rules=tool_rules,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
             block_high_risk=block_high_risk,

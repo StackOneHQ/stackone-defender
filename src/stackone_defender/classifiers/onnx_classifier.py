@@ -7,12 +7,22 @@ from __future__ import annotations
 
 import logging
 import math
+import threading
 from pathlib import Path
 
 _logger = logging.getLogger(__name__)
 
 # Shared across all OnnxClassifier instances (keyed by resolved model dir path).
 _session_cache: dict[str, tuple[object, object]] = {}
+_registry_lock = threading.Lock()
+_load_locks: dict[str, threading.Lock] = {}
+
+
+def _lock_for_cache_key(cache_key: str) -> threading.Lock:
+    with _registry_lock:
+        if cache_key not in _load_locks:
+            _load_locks[cache_key] = threading.Lock()
+        return _load_locks[cache_key]
 
 
 def _default_model_path() -> str:
@@ -50,30 +60,36 @@ class OnnxClassifier:
             self._session, self._tokenizer = cached
             return
 
-        try:
-            import numpy as np  # noqa: F401
-            import onnxruntime as ort
-            from tokenizers import Tokenizer
-        except ImportError as e:
-            self._load_failed = True
-            _logger.warning("[defender] ONNX model failed to load: %s", e)
-            raise ImportError(
-                "ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]"
-            ) from e
+        with _lock_for_cache_key(cache_key):
+            cached = _session_cache.get(cache_key)
+            if cached:
+                self._session, self._tokenizer = cached
+                return
 
-        try:
-            tokenizer_path = str(Path(self._model_path) / "tokenizer.json")
-            self._tokenizer = Tokenizer.from_file(tokenizer_path)
-            self._tokenizer.enable_truncation(max_length=self._max_length)
-            self._tokenizer.enable_padding(length=self._max_length)
+            try:
+                import numpy as np  # noqa: F401
+                import onnxruntime as ort
+                from tokenizers import Tokenizer
+            except ImportError as e:
+                self._load_failed = True
+                _logger.warning("[defender] ONNX model failed to load: %s", e)
+                raise ImportError(
+                    "ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]"
+                ) from e
 
-            onnx_path = str(Path(self._model_path) / "model_quantized.onnx")
-            self._session = ort.InferenceSession(onnx_path)
-        except Exception as e:
-            _logger.warning("[defender] ONNX model failed to load: %s", e)
-            raise
+            try:
+                tokenizer_path = str(Path(self._model_path) / "tokenizer.json")
+                self._tokenizer = Tokenizer.from_file(tokenizer_path)
+                self._tokenizer.enable_truncation(max_length=self._max_length)
+                self._tokenizer.enable_padding(length=self._max_length)
 
-        _session_cache[cache_key] = (self._session, self._tokenizer)
+                onnx_path = str(Path(self._model_path) / "model_quantized.onnx")
+                self._session = ort.InferenceSession(onnx_path)
+            except Exception as e:
+                _logger.warning("[defender] ONNX model failed to load: %s", e)
+                raise
+
+            _session_cache[cache_key] = (self._session, self._tokenizer)
 
     def classify(self, text: str) -> float:
         """Classify a single text, returning a sigmoid score in [0, 1]."""

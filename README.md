@@ -51,7 +51,6 @@ from stackone_defender import create_prompt_defense
 # block_high_risk=True enables the allowed/blocked decision
 defense = create_prompt_defense(
     block_high_risk=True,
-    use_default_tool_rules=True,  # Enable built-in per-tool base risk and field-handling rules
 )
 
 # Optional: pre-load ONNX model to avoid first-call latency
@@ -104,21 +103,9 @@ Use `allowed` for blocking decisions:
 - `allowed=True` — safe to pass to the LLM
 - `allowed=False` — content blocked (requires `block_high_risk=True`, which defaults to `False`)
 
-`risk_level` is diagnostic metadata. It starts at the tool's base risk level and can only be escalated by detections — never reduced. Use it for logging and monitoring, not for allow/block logic.
+`risk_level` is diagnostic metadata. It starts at `default_risk_level` (default `"medium"`) and is escalated when Tier 1 or Tier 2 find threats. Use it for logging and monitoring; use `allowed` for blocking when `block_high_risk=True`.
 
-The following base risk levels apply when `use_default_tool_rules=True` is set. Without it, tools use `default_risk_level` (defaults to `"medium"`).
-
-| Tool Pattern | Base Risk | Why |
-|--------------|-----------|-----|
-| `gmail_*`, `email_*` | `high` | Emails are the #1 injection vector |
-| `documents_*` | `medium` | User-generated content |
-| `hris_*` | `medium` | Employee data with free-text fields |
-| `github_*` | `medium` | PRs/issues with user-generated content |
-| All other tools | `medium` | Default cautious level |
-
-A safe email with no detections will have `risk_level="high"` (tool base risk) but `allowed=True` (no threats found).
-
-Risk escalation from detections:
+Escalation from detections:
 
 | Level | Detection Trigger |
 |-------|-------------------|
@@ -138,8 +125,7 @@ defense = create_prompt_defense(
     enable_tier1=True,             # Pattern detection (default: True)
     enable_tier2=True,             # ML classification (default: True)
     block_high_risk=True,          # Block high/critical content (default: False)
-    use_default_tool_rules=True,   # Enable built-in per-tool base risk and field-handling rules (default: False)
-    default_risk_level="medium",
+    default_risk_level="medium",   # Starting risk before Tier 1 classification
 )
 ```
 
@@ -157,6 +143,7 @@ class DefenseResult:
     fields_sanitized: list[str]            # Fields where threats were found (e.g. ['subject', 'body'])
     patterns_by_field: dict[str, list[str]] # Patterns per field
     tier2_score: float | None = None       # ML score (0.0 = safe, 1.0 = injection)
+    tier2_skip_reason: str | None = None   # When Tier 2 did not produce a score
     max_sentence: str | None = None        # The sentence with the highest Tier 2 score
     latency_ms: float = 0.0               # Processing time in milliseconds
 ```
@@ -197,22 +184,9 @@ defense = create_prompt_defense()
 defense.warmup_tier2()  # optional, avoids ~1-2s first-call latency
 ```
 
-## Tool-Specific Rules
+## Risky-field configuration
 
-> **Note:** `use_default_tool_rules=True` enables built-in per-tool **risk rules** (base risk, skip fields, max lengths, thresholds). Risky-field detection (which fields get sanitized) uses tool-specific overrides regardless of this setting.
-
-Built-in per-tool rules define the base risk level and field-handling parameters for each tool provider. See the [base risk table](#understanding-allowed-vs-risk_level) for risk levels.
-
-| Tool Pattern | Risky Fields | Notes |
-|---|---|---|
-| `gmail_*`, `email_*` | subject, body, snippet, content | Base risk `high` — primary injection vector |
-| `documents_*` | name, description, content, title | User-generated content |
-| `github_*` | name, title, body, description | PRs, issues, comments |
-| `hris_*` | name, notes, bio, description | Employee free-text fields |
-| `ats_*` | name, notes, description, summary | Candidate data |
-| `crm_*` | name, description, notes, content | Customer data |
-
-Tools not matching any pattern use `medium` base risk with default risky field detection.
+Which JSON keys are treated as untrusted text (and sanitized) comes from `RiskyFieldConfig`: global field names and patterns, plus optional `tool_overrides` (wildcard keys such as `gmail_*` → list of field names). This mirrors the TypeScript package: there are no separate per-tool sanitization rules for skip lists or base risk.
 
 ## Development
 

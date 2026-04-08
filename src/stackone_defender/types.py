@@ -156,16 +156,6 @@ class TraversalConfig:
 
 
 @dataclass
-class ToolSanitizationRule:
-    tool_pattern: str | re.Pattern
-    risky_fields: list[str] | None = None
-    sanitization_level: RiskLevel | None = None
-    max_field_lengths: dict[str, int] | None = None
-    skip_fields: list[str] | None = None
-    cumulative_risk_thresholds: dict[str, int] | None = None
-
-
-@dataclass
 class Tier2Config:
     high_risk_threshold: float = 0.8
     medium_risk_threshold: float = 0.5
@@ -181,7 +171,6 @@ class Tier2Config:
 class PromptDefenseConfig:
     risky_fields: RiskyFieldConfig = field(default_factory=RiskyFieldConfig)
     traversal: TraversalConfig = field(default_factory=TraversalConfig)
-    tool_rules: list[ToolSanitizationRule] = field(default_factory=list)
     cumulative_risk_thresholds: dict[str, int] = field(
         default_factory=lambda: {"medium": 3, "high": 1, "patterns": 3}
     )
