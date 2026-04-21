@@ -156,6 +156,8 @@ defense = create_prompt_defense(
 Runs Tier 1 sanitization on risky fields, then Tier 2 on extracted text (with optional field scoping). **Synchronous** — no `await`.
 
 ```python
+from dataclasses import dataclass, field
+
 @dataclass
 class DefenseResult:
     allowed: bool
@@ -167,7 +169,7 @@ class DefenseResult:
     tier2_score: float | None = None
     tier2_skip_reason: str | None = None
     max_sentence: str | None = None
-    fields_dropped: list[str] = []
+    fields_dropped: list[str] = field(default_factory=list)
     truncated_at_depth: bool | None = None
     latency_ms: float = 0.0
 ```

@@ -57,6 +57,12 @@ class TestOnnxClassifier:
     def test_is_loaded(self):
         assert self.classifier.is_loaded()
 
+    def test_count_tokens_excludes_padding(self):
+        """Padding is fixed at max_length; counts must reflect real tokens for chunk splitting."""
+        short = self.classifier.count_tokens("hello")
+        assert short < self.classifier.get_max_length()
+        assert short <= 32
+
     def test_module_cache_shares_session_across_instances(self):
         onnx_classifier_mod._session_cache.clear()
         c1 = OnnxClassifier(_MODEL_PATH)

@@ -87,7 +87,7 @@ def create_config(overrides: dict | None = None) -> PromptDefenseConfig:
             risky_fields=RiskyFieldConfig(
                 field_names=list(DEFAULT_RISKY_FIELDS.field_names),
                 field_patterns=list(DEFAULT_RISKY_FIELDS.field_patterns),
-                tool_overrides=dict(DEFAULT_RISKY_FIELDS.tool_overrides or {}),
+                tool_overrides={k: list(v) for k, v in (DEFAULT_RISKY_FIELDS.tool_overrides or {}).items()},
             ),
             traversal=TraversalConfig(
                 max_depth=DEFAULT_TRAVERSAL_CONFIG.max_depth,
@@ -117,7 +117,9 @@ def create_config(overrides: dict | None = None) -> PromptDefenseConfig:
             if "field_patterns" in rf and rf["field_patterns"] is not None:
                 config.risky_fields.field_patterns = list(rf["field_patterns"])
             if "tool_overrides" in rf and rf["tool_overrides"] is not None:
-                config.risky_fields.tool_overrides = dict(rf["tool_overrides"])
+                config.risky_fields.tool_overrides = {
+                    k: list(v) for k, v in dict(rf["tool_overrides"]).items()
+                }
         elif isinstance(rf, RiskyFieldConfig):
             config.risky_fields = rf
     if "traversal" in overrides:

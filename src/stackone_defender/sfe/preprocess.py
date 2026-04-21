@@ -67,24 +67,23 @@ def get_default_predictor(model_path: str | None = None) -> SfePredictor | None:
         if resolved in _predictor_cache:
             return _predictor_cache[resolved]
 
-    try:
-        import fasttext  # type: ignore
-    except Exception:
-        _logger.warning(
-            "[defender] use_sfe requires FastText bindings (install the `[sfe]` extra: `fasttext-ng`). "
-            "SFE preprocessor disabled; payload passes through."
-        )
-        return None
+        try:
+            import fasttext  # type: ignore
+        except Exception:
+            _logger.warning(
+                "[defender] use_sfe requires FastText bindings (install the `[sfe]` extra: `fasttext-ng`). "
+                "SFE preprocessor disabled; payload passes through."
+            )
+            return None
 
-    try:
-        model = fasttext.load_model(resolved)
-        predictor: SfePredictor = _FastTextPredictor(model)
-        with _predictor_lock:
+        try:
+            model = fasttext.load_model(resolved)
+            predictor: SfePredictor = _FastTextPredictor(model)
             _predictor_cache[resolved] = predictor
-        return predictor
-    except Exception as e:
-        _logger.warning("[defender] SFE predictor failed to load (%s); payload will pass through.", e)
-        return None
+            return predictor
+        except Exception as e:
+            _logger.warning("[defender] SFE predictor failed to load (%s); payload will pass through.", e)
+            return None
 
 
 def sfe_preprocess(value: Any, options: dict[str, Any] | None = None) -> SfePreprocessResult:
@@ -197,7 +196,8 @@ def _filter_by_paths(
         return obj
 
     if isinstance(obj, list):
-        return [_filter_by_paths(item, drop_paths, depth_flag, path, depth + 1) for item in obj]
+        # Match _extract_fields: list traversal does not increment logical depth.
+        return [_filter_by_paths(item, drop_paths, depth_flag, path, depth) for item in obj]
 
     if isinstance(obj, dict):
         out: dict[str, Any] = {}
@@ -217,7 +217,7 @@ def _compact_dropped(obj: Any, depth_flag: dict[str, bool], depth: int = 0) -> A
         return obj
 
     if isinstance(obj, list):
-        return [_compact_dropped(item, depth_flag, depth + 1) for item in obj if item is not _DROPPED]
+        return [_compact_dropped(item, depth_flag, depth) for item in obj if item is not _DROPPED]
 
     if isinstance(obj, dict):
         out: dict[str, Any] = {}

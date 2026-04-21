@@ -173,7 +173,8 @@ class Tier2Config:
     min_text_length: int = 10
     max_text_length: int = 10000
     onnx_model_path: str | None = None
-    # If set and non-empty, Tier 2 only sees strings under these keys; None falls back to Tier 1 risky keys or all strings.
+    # None: Tier 2 uses Tier 1 risky_field_names when non-empty, else all strings.
+    # Non-empty list: only strings under those keys. Empty list: all strings (same as TS).
     tier2_fields: list[str] | None = None
 
 

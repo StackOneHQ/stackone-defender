@@ -54,7 +54,10 @@ class ToolResultSanitizer:
         self._default_risk_level = default_risk_level
         self._use_tier1 = use_tier1_classification
         self._block_high_risk = block_high_risk
-        self._cumulative_thresholds = cumulative_risk_thresholds or dict(DEFAULT_CUMULATIVE_RISK_THRESHOLDS)
+        merged = dict(DEFAULT_CUMULATIVE_RISK_THRESHOLDS)
+        if cumulative_risk_thresholds:
+            merged.update(cumulative_risk_thresholds)
+        self._cumulative_thresholds = merged
 
         self._sanitizer: Sanitizer = create_sanitizer()
         self._pattern_detector: PatternDetector = create_pattern_detector()
@@ -275,17 +278,23 @@ class ToolResultSanitizer:
     @staticmethod
     def _should_escalate(tracker: CumulativeRiskTracker) -> bool:
         thresholds = tracker.escalation_threshold
-        if tracker.high_risk_count >= int(thresholds["high"]):
+        high_threshold = int(thresholds.get("high", DEFAULT_CUMULATIVE_RISK_THRESHOLDS["high"]))
+        medium_threshold = int(thresholds.get("medium", DEFAULT_CUMULATIVE_RISK_THRESHOLDS["medium"]))
+        patterns_threshold = int(thresholds.get("patterns", DEFAULT_CUMULATIVE_RISK_THRESHOLDS["patterns"]))
+        medium_fraction = float(
+            thresholds.get("medium_fraction", DEFAULT_CUMULATIVE_RISK_THRESHOLDS["medium_fraction"])
+        )
+        patterns_fraction = float(
+            thresholds.get("patterns_fraction", DEFAULT_CUMULATIVE_RISK_THRESHOLDS["patterns_fraction"])
+        )
+        if tracker.high_risk_count >= high_threshold:
             return True
         total = max(tracker.total_fields_processed, 1)
-        if (
-            tracker.medium_risk_count >= int(thresholds["medium"])
-            and (tracker.medium_risk_count / total) >= float(thresholds["medium_fraction"])
-        ):
+        if tracker.medium_risk_count >= medium_threshold and (tracker.medium_risk_count / total) >= medium_fraction:
             return True
         if (
-            len(tracker.suspicious_patterns) >= int(thresholds["patterns"])
-            and (len(tracker.suspicious_patterns) / total) >= float(thresholds["patterns_fraction"])
+            len(tracker.suspicious_patterns) >= patterns_threshold
+            and (len(tracker.suspicious_patterns) / total) >= patterns_fraction
         ):
             return True
         return False

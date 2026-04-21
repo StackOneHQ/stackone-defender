@@ -131,7 +131,8 @@ class OnnxClassifier:
     def count_tokens(self, text: str) -> int:
         self._ensure_loaded()
         encoding = self._tokenizer.encode(text)
-        return len(encoding.ids)
+        # Padding is enabled at a fixed length; count only real (attended) tokens.
+        return int(sum(encoding.attention_mask))
 
     def get_max_length(self) -> int:
         return self._max_length

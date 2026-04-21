@@ -186,9 +186,21 @@ class PromptDefense:
 
         if self._tier2:
             fields_for_tier2 = self._tier2_fields if self._tier2_fields is not None else self._config.tier2.tier2_fields
-            strings = [s for s in _extract_strings(effective_value, fields_for_tier2, depth_flag) if len(s) > 0]
+            extraction_fields_for_tier2 = fields_for_tier2
+            if extraction_fields_for_tier2 is None:
+                risky_names = sanitized.metadata.risky_field_names
+                if risky_names:
+                    extraction_fields_for_tier2 = risky_names
+            strings = [
+                s
+                for s in _extract_strings(effective_value, extraction_fields_for_tier2, depth_flag)
+                if len(s) > 0
+            ]
             if not strings:
-                if fields_for_tier2 is not None and len(fields_for_tier2) > 0:
+                scoped = (fields_for_tier2 is not None and len(fields_for_tier2) > 0) or (
+                    extraction_fields_for_tier2 is not None and len(extraction_fields_for_tier2) > 0
+                )
+                if scoped:
                     tier2_skip_reason = "No strings found in tier2_fields"
                 else:
                     tier2_skip_reason = "No strings extracted from tool result"
