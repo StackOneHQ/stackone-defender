@@ -50,6 +50,13 @@ pip install stackone-defender[onnx]
 
 The ONNX model (~22MB) is bundled in the wheel — no extra downloads at runtime.
 
+**SFE preprocessor (optional)** — add extras:
+
+```bash
+pip install stackone-defender[sfe]
+# or: uv add "stackone-defender[sfe]"
+```
+
 ## Quick start
 
 ```python
@@ -89,11 +96,17 @@ else:
 
 ### Tier 2 — ML classification (ONNX)
 
-Sentence-level MiniLM classifier (int8 ONNX ~22 MB, bundled):
+Packed-chunk MiniLM classifier (int8 ONNX ~22 MB, bundled):
 
-- Split text into sentences, score each (0.0 = benign, 1.0 = injection-like), take the max
+- Split text into sentences, pack to model-sized chunks, score chunks in batched ONNX calls
 - Catches paraphrased or novel injections missed by regex
-- Roughly ~10 ms per batch after warmup (CPU)
+- Uses chunked batch inference to bound memory on large payloads
+
+### Optional SFE preprocessor
+
+- `use_sfe=True` enables a field-level FastText pass before Tier 1/Tier 2
+- Drops metadata-like leaves (IDs, enum-like strings) and keeps user-facing content
+- Fails open if the runtime/model is unavailable: payload continues unfiltered
 
 **Benchmarks** (F1 @ threshold 0.5):
 
@@ -126,6 +139,7 @@ defense = create_prompt_defense(
     block_high_risk=False,
     default_risk_level="medium",
     tier2_fields=["subject", "body", "snippet"],  # optional: scope Tier 2 to these JSON keys
+    use_sfe=True,  # optional: enable semantic field extractor preprocessing
     config={
         "tier2": {
             "high_risk_threshold": 0.8,
@@ -151,6 +165,8 @@ class DefenseResult:
     tier2_score: float | None = None
     tier2_skip_reason: str | None = None
     max_sentence: str | None = None
+    fields_dropped: list[str] = []
+    truncated_at_depth: bool | None = None
     latency_ms: float = 0.0
 ```
 

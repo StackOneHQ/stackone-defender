@@ -1,6 +1,6 @@
 [project]
 name = "stackone-defender"
-version = "0.1.2"
+version = "0.6.1"
 description = "Indirect prompt injection defense for AI agents using tool calls"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,7 @@ Repository = "https://github.com/StackOneHQ/stackone-defender"
 
 [project.optional-dependencies]
 onnx = ["onnxruntime>=1.16.0", "tokenizers>=0.15.0", "numpy>=1.24.0"]
+sfe = ["fasttext-wheel"]
 
 [dependency-groups]
 dev = [
@@ -32,6 +33,7 @@ dev = [
   "onnxruntime>=1.16.0",
   "tokenizers>=0.15.0",
   "numpy>=1.24.0",
+  "fasttext-wheel",
 ]
 
 [build-system]

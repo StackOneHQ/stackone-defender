@@ -42,3 +42,22 @@ class TestTier2ClassifierConfig:
         c = Tier2Classifier(config={"high_risk_threshold": 0.9})
         cfg = c.get_config()
         assert cfg["high_risk_threshold"] == 0.9
+
+    def test_prepare_chunks_short_text_skips(self):
+        c = Tier2Classifier()
+        prep = c.prepare_chunks("hi")
+        assert prep["skipped"]
+        assert prep["chunks"] == []
+
+    def test_classify_chunks_batch_passthrough(self):
+        c = Tier2Classifier()
+
+        class _FakeOnnx:
+            def warmup(self):
+                return None
+
+            def classify_batch(self, chunks):
+                return [0.1] * len(chunks)
+
+        c._onnx = _FakeOnnx()  # type: ignore[attr-defined]
+        assert c.classify_chunks_batch(["a", "b"]) == [0.1, 0.1]

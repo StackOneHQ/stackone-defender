@@ -11,7 +11,7 @@ import time
 from typing import Any
 
 from ..classifiers.pattern_detector import PatternDetector, create_pattern_detector
-from ..config import DEFAULT_CUMULATIVE_RISK_THRESHOLDS, DEFAULT_RISKY_FIELDS, DEFAULT_TRAVERSAL_CONFIG
+from ..config import DANGEROUS_KEYS, DEFAULT_CUMULATIVE_RISK_THRESHOLDS, DEFAULT_RISKY_FIELDS, DEFAULT_TRAVERSAL_CONFIG
 from ..sanitizers.sanitizer import Sanitizer, create_sanitizer
 from ..types import (
     CumulativeRiskTracker,
@@ -47,7 +47,7 @@ class ToolResultSanitizer:
         default_risk_level: RiskLevel = "medium",
         use_tier1_classification: bool = True,
         block_high_risk: bool = False,
-        cumulative_risk_thresholds: dict[str, int] | None = None,
+        cumulative_risk_thresholds: dict[str, int | float] | None = None,
     ):
         self._risky_fields = risky_fields or DEFAULT_RISKY_FIELDS
         self._traversal = traversal or DEFAULT_TRAVERSAL_CONFIG
@@ -149,6 +149,9 @@ class ToolResultSanitizer:
 
         result = {}
         for key, val in obj.items():
+            if key in DANGEROUS_KEYS:
+                self._record_dangerous_key(metadata, context.path, key)
+                continue
             field_path = f"{context.path}.{key}" if context.path else key
             field_ctx = SanitizationContext(
                 path=field_path, field_name=key,
@@ -165,22 +168,33 @@ class ToolResultSanitizer:
         return result
 
     def _sanitize_paginated(self, obj: dict, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> dict:
-        result = dict(obj)
-        for key in ("data", "results", "items", "records"):
-            if key in obj and isinstance(obj[key], list):
-                ctx = SanitizationContext(
-                    path=f"{context.path}.{key}", field_name=context.field_name,
-                    tool_name=context.tool_name, vertical=context.vertical,
-                    resource=context.resource, risk_level=context.risk_level,
-                    boundary=context.boundary, cumulative_risk=context.cumulative_risk,
-                )
-                result[key] = self._sanitize_array(obj[key], ctx, metadata, depth + 1)
-                break
+        result = {}
+        data_keys = {"data", "results", "items", "records"}
+        for key, val in obj.items():
+            if key in DANGEROUS_KEYS:
+                self._record_dangerous_key(metadata, context.path, key)
+                continue
+
+            field_path = f"{context.path}.{key}" if context.path else key
+            field_ctx = SanitizationContext(
+                path=field_path, field_name=key,
+                tool_name=context.tool_name, vertical=context.vertical,
+                resource=context.resource, risk_level=context.risk_level,
+                boundary=context.boundary, cumulative_risk=context.cumulative_risk,
+            )
+            if key in data_keys and isinstance(val, list):
+                result[key] = self._sanitize_array(val, field_ctx, metadata, depth + 1)
+            else:
+                # Recurse into non-data fields to strip nested dangerous keys too.
+                result[key] = self._sanitize_value(val, field_ctx, metadata, depth + 1)
         return result
 
     def _sanitize_wrapped(self, obj: dict, context: SanitizationContext, metadata: SanitizationMetadata, depth: int) -> dict:
         result = {}
         for key, val in obj.items():
+            if key in DANGEROUS_KEYS:
+                self._record_dangerous_key(metadata, context.path, key)
+                continue
             field_path = f"{context.path}.{key}" if context.path else key
             field_ctx = SanitizationContext(
                 path=field_path, field_name=key,
@@ -203,6 +217,9 @@ class ToolResultSanitizer:
         metadata.size_metrics.string_count += 1
         risk_level = context.risk_level
         tier1_patterns: list[str] = []
+        if context.cumulative_risk:
+            # Denominator counts all risky strings, not only matched ones.
+            context.cumulative_risk.total_fields_processed += 1
 
         if self._use_tier1:
             result = self._pattern_detector.analyze(value)
@@ -214,8 +231,10 @@ class ToolResultSanitizer:
                     risk_level = "high"
                 elif result.suggested_risk == "medium" and risk_level == "low":
                     risk_level = "medium"
-                if context.cumulative_risk:
-                    self._update_cumulative_risk(context.cumulative_risk, risk_level, tier1_patterns)
+                if context.cumulative_risk and result.matches:
+                    # Track suggested risk from pattern matches to avoid inflating
+                    # counters by the default field risk.
+                    self._update_cumulative_risk(context.cumulative_risk, result.suggested_risk, tier1_patterns)
 
         if self._block_high_risk and risk_level in ("high", "critical"):
             metadata.fields_sanitized.append(context.path)
@@ -246,7 +265,6 @@ class ToolResultSanitizer:
 
     @staticmethod
     def _update_cumulative_risk(tracker: CumulativeRiskTracker, risk_level: RiskLevel, patterns: list[str]) -> None:
-        tracker.total_fields_processed += 1
         if risk_level in ("high", "critical"):
             tracker.high_risk_count += 1
         elif risk_level == "medium":
@@ -256,13 +274,26 @@ class ToolResultSanitizer:
 
     @staticmethod
     def _should_escalate(tracker: CumulativeRiskTracker) -> bool:
-        if tracker.high_risk_count >= tracker.escalation_threshold["high"]:
+        thresholds = tracker.escalation_threshold
+        if tracker.high_risk_count >= int(thresholds["high"]):
             return True
-        if tracker.medium_risk_count >= tracker.escalation_threshold["medium"]:
+        total = max(tracker.total_fields_processed, 1)
+        if (
+            tracker.medium_risk_count >= int(thresholds["medium"])
+            and (tracker.medium_risk_count / total) >= float(thresholds["medium_fraction"])
+        ):
             return True
-        if len(tracker.suspicious_patterns) >= tracker.escalation_threshold["patterns"]:
+        if (
+            len(tracker.suspicious_patterns) >= int(thresholds["patterns"])
+            and (len(tracker.suspicious_patterns) / total) >= float(thresholds["patterns_fraction"])
+        ):
             return True
         return False
+
+    @staticmethod
+    def _record_dangerous_key(metadata: SanitizationMetadata, parent_path: str, key: str) -> None:
+        key_path = f"{parent_path}.{key}" if parent_path else key
+        metadata.dangerous_keys_removed.append(key_path)
 
     @staticmethod
     def _extract_vertical(tool_name: str) -> str:

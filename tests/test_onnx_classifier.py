@@ -124,3 +124,21 @@ class TestTier2ClassifierNoModel:
         assert c.get_risk_level(0.7) == "high"
         assert c.get_risk_level(0.5) == "medium"
         assert c.get_risk_level(0.3) == "low"
+
+
+class TestOnnxBatchChunkingNoModel:
+    def test_classify_batch_uses_chunks(self, monkeypatch):
+        classifier = OnnxClassifier("/tmp/non-existent")
+        monkeypatch.setattr(classifier, "_ensure_loaded", lambda: None)
+
+        calls = []
+
+        def fake_chunk(texts):
+            calls.append(len(texts))
+            return [0.1] * len(texts)
+
+        monkeypatch.setattr(classifier, "_classify_batch_chunk", fake_chunk)
+        texts = [f"t{i}" for i in range(OnnxClassifier._MAX_BATCH_CHUNK + 5)]
+        scores = classifier.classify_batch(texts)
+        assert len(scores) == len(texts)
+        assert calls == [OnnxClassifier._MAX_BATCH_CHUNK, 5]
