@@ -71,7 +71,7 @@ def get_default_predictor(model_path: str | None = None) -> SfePredictor | None:
         import fasttext  # type: ignore
     except Exception:
         _logger.warning(
-            "[defender] use_sfe requires `fasttext` (or fasttext-wheel). "
+            "[defender] use_sfe requires FastText bindings (install the `[sfe]` extra: `fasttext-ng`). "
             "SFE preprocessor disabled; payload passes through."
         )
         return None

@@ -12,7 +12,7 @@
 
 ### Bug Fixes
 
-* drop `fasttext-wheel` from dev dependencies and gate the `[sfe]` extra to Python versions below 3.13 so `uv sync --group dev` succeeds on 3.13 CI (no cp313 wheels; sdist does not compile).
+* use `fasttext-ng` instead of `fasttext-wheel` for the `[sfe]` extra and dev tests so Python 3.13 CI can install maintained FastText bindings (NumPy 2.3+).
 
 ### Breaking Changes
 
