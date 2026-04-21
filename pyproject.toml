@@ -25,7 +25,9 @@ Repository = "https://github.com/StackOneHQ/stackone-defender"
 
 [project.optional-dependencies]
 onnx = ["onnxruntime>=1.16.0", "tokenizers>=0.15.0", "numpy>=1.24.0"]
-sfe = ["fasttext-wheel"]
+# fasttext-wheel has no cp313 wheels yet; sdist fails to compile on modern GCC.
+# SFE still fail-opens when fasttext is missing; use 3.11/3.12 for the native predictor.
+sfe = ["fasttext-wheel; python_version < '3.13'"]
 
 [dependency-groups]
 dev = [
@@ -33,7 +35,6 @@ dev = [
   "onnxruntime>=1.16.0",
   "tokenizers>=0.15.0",
   "numpy>=1.24.0",
-  "fasttext-wheel",
 ]
 
 [build-system]

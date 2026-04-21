@@ -533,12 +533,11 @@ onnx = [
     { name = "tokenizers" },
 ]
 sfe = [
-    { name = "fasttext-wheel" },
+    { name = "fasttext-wheel", marker = "python_full_version < '3.13'" },
 ]
 
 [package.dev-dependencies]
 dev = [
-    { name = "fasttext-wheel" },
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "pytest" },
@@ -547,7 +546,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "fasttext-wheel", marker = "extra == 'sfe'" },
+    { name = "fasttext-wheel", marker = "python_full_version < '3.13' and extra == 'sfe'" },
     { name = "numpy", marker = "extra == 'onnx'", specifier = ">=1.24.0" },
     { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.16.0" },
     { name = "tokenizers", marker = "extra == 'onnx'", specifier = ">=0.15.0" },
@@ -556,7 +555,6 @@ provides-extras = ["onnx", "sfe"]
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "fasttext-wheel" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "onnxruntime", specifier = ">=1.16.0" },
     { name = "pytest", specifier = ">=8.0" },

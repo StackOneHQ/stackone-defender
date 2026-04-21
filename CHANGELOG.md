@@ -10,6 +10,10 @@
 * add dangerous-key traversal hardening (`__proto__`, `constructor`, `prototype`)
 * add cumulative-risk fractional thresholds to reduce list-response false positives
 
+### Bug Fixes
+
+* drop `fasttext-wheel` from dev dependencies and gate the `[sfe]` extra to Python versions below 3.13 so `uv sync --group dev` succeeds on 3.13 CI (no cp313 wheels; sdist does not compile).
+
 ### Breaking Changes
 
 * Python package version jumps from `0.1.2` to `0.6.1` to align release train with TypeScript parity.

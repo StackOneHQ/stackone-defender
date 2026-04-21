@@ -57,6 +57,8 @@ pip install stackone-defender[sfe]
 # or: uv add "stackone-defender[sfe]"
 ```
 
+The `[sfe]` extra pulls in `fasttext-wheel`, which currently ships wheels for **Python 3.11 and 3.12** only. On **3.13+**, install the base package and supply your own FastText-compatible `predictor` in `use_sfe`, or rely on the default fail-open behavior until upstream publishes wheels.
+
 ## Quick start
 
 ```python
