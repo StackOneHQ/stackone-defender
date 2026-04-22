@@ -55,6 +55,19 @@ wheels = [
 ]
 
 [[package]]
+name = "fasttext-ng"
+version = "0.9.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pybind11" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9f/98/1bea41e303e3ac061cf9e4e75753b41253c35cbb5bc55914942e1bc722ce/fasttext_ng-0.9.3.tar.gz", hash = "sha256:f80ab07b1f75c4f650401abd79399169b6b79bb027c6645645d98927dfae1e9e", size = 74707, upload-time = "2025-12-18T01:35:56.997Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/00/2c/e4c3461e0ea990ce46f887ba001753d7deac7a876929c1d63afb8bc3310d/fasttext_ng-0.9.3-cp313-cp313-macosx_15_0_arm64.whl", hash = "sha256:7055d6b5ecb97a0e8ea0f5e5002ea0784c692f8eb31d508be7571a0d353d8fd3", size = 335117, upload-time = "2025-12-18T01:35:55.368Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.25.0"
 source = { registry = "https://pypi.org/simple" }
@@ -368,6 +381,15 @@ wheels = [
 ]
 
 [[package]]
+name = "pybind11"
+version = "3.0.4"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/f0/35145a3c3baffeef55d4b8324caa33abaa8fa56ab345ecd4b2211d09163e/pybind11-3.0.4.tar.gz", hash = "sha256:3286b59c8a774b9ee650169302dd5a4eedc30a8617905a0560dd8ee44775130c", size = 589533, upload-time = "2026-04-19T03:08:15.925Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b3/06/c3a23c9a0263b136c519f033a58d4641e73065fefc7754e9667ec206d992/pybind11-3.0.4-py3-none-any.whl", hash = "sha256:961720ee652da51d531b7b2451a6bd2bc042b0106e6d9baa48ecb7d58034ce63", size = 314166, upload-time = "2026-04-19T03:08:14.091Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -471,7 +493,7 @@ wheels = [
 
 [[package]]
 name = "stackone-defender"
-version = "0.1.0"
+version = "0.6.1"
 source = { editable = "." }
 
 [package.optional-dependencies]
@@ -480,9 +502,13 @@ onnx = [
     { name = "onnxruntime" },
     { name = "tokenizers" },
 ]
+sfe = [
+    { name = "fasttext-ng" },
+]
 
 [package.dev-dependencies]
 dev = [
+    { name = "fasttext-ng" },
     { name = "numpy" },
     { name = "onnxruntime" },
     { name = "pytest" },
@@ -491,14 +517,16 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "fasttext-ng", marker = "extra == 'sfe'", specifier = ">=0.9.3" },
     { name = "numpy", marker = "extra == 'onnx'", specifier = ">=1.24.0" },
     { name = "onnxruntime", marker = "extra == 'onnx'", specifier = ">=1.16.0" },
     { name = "tokenizers", marker = "extra == 'onnx'", specifier = ">=0.15.0" },
 ]
-provides-extras = ["onnx"]
+provides-extras = ["onnx", "sfe"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "fasttext-ng", specifier = ">=0.9.3" },
     { name = "numpy", specifier = ">=1.24.0" },
     { name = "onnxruntime", specifier = ">=1.16.0" },
     { name = "pytest", specifier = ">=8.0" },

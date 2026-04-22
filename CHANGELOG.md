@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.1](https://github.com/StackOneHQ/stackone-defender/compare/stackone-defender-v0.1.2...stackone-defender-v0.6.1) (2026-04-21)
+
+### Features
+
+* align Python package behavior with `@stackone/defender` 0.6.1
+* add SFE preprocessing support (`use_sfe`) with fail-open optional runtime loading
+* add packed-chunk Tier 2 batching and density-adjusted scoring
+* add dangerous-key traversal hardening (`__proto__`, `constructor`, `prototype`)
+* add cumulative-risk fractional thresholds to reduce list-response false positives
+
+### Bug Fixes
+
+* use `fasttext-ng` instead of `fasttext-wheel` for the `[sfe]` extra and dev tests so Python 3.13 CI can install maintained FastText bindings (NumPy 2.3+).
+
+### Breaking Changes
+
+* Python package version jumps from `0.1.2` to `0.6.1` to align release train with TypeScript parity.
+* `DefenseResult` now includes `fields_dropped` and `truncated_at_depth`.
+
 ## [0.1.2](https://github.com/StackOneHQ/stackone-defender/compare/stackone-defender-v0.1.1...stackone-defender-v0.1.2) (2026-04-08)
 
 

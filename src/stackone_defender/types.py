@@ -78,7 +78,15 @@ class CumulativeRiskTracker:
     high_risk_count: int = 0
     suspicious_patterns: list[str] = field(default_factory=list)
     total_fields_processed: int = 0
-    escalation_threshold: dict[str, int] = field(default_factory=lambda: {"medium": 3, "high": 1, "patterns": 3})
+    escalation_threshold: dict[str, int | float] = field(
+        default_factory=lambda: {
+            "medium": 3,
+            "high": 1,
+            "patterns": 3,
+            "medium_fraction": 0.25,
+            "patterns_fraction": 0.25,
+        }
+    )
 
 
 @dataclass
@@ -123,6 +131,8 @@ class SanitizationMetadata:
     size_metrics: SizeMetrics = field(default_factory=SizeMetrics)
     # Leaf dict keys Tier 1 identified as risky string fields (for Tier 2 scoping).
     risky_field_names: list[str] = field(default_factory=list)
+    # Paths of keys removed due to prototype-pollution risk.
+    dangerous_keys_removed: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -163,7 +173,8 @@ class Tier2Config:
     min_text_length: int = 10
     max_text_length: int = 10000
     onnx_model_path: str | None = None
-    # If set and non-empty, Tier 2 only sees strings under these keys; None falls back to Tier 1 risky keys or all strings.
+    # None: Tier 2 uses Tier 1 risky_field_names when non-empty, else all strings.
+    # Non-empty list: only strings under those keys. Empty list: all strings (same as TS).
     tier2_fields: list[str] | None = None
 
 
@@ -171,8 +182,14 @@ class Tier2Config:
 class PromptDefenseConfig:
     risky_fields: RiskyFieldConfig = field(default_factory=RiskyFieldConfig)
     traversal: TraversalConfig = field(default_factory=TraversalConfig)
-    cumulative_risk_thresholds: dict[str, int] = field(
-        default_factory=lambda: {"medium": 3, "high": 1, "patterns": 3}
+    cumulative_risk_thresholds: dict[str, int | float] = field(
+        default_factory=lambda: {
+            "medium": 3,
+            "high": 1,
+            "patterns": 3,
+            "medium_fraction": 0.25,
+            "patterns_fraction": 0.25,
+        }
     )
     tier2: Tier2Config = field(default_factory=Tier2Config)
     block_high_risk: bool = False
@@ -189,4 +206,6 @@ class DefenseResult:
     tier2_score: float | None = None
     tier2_skip_reason: str | None = None
     max_sentence: str | None = None
+    fields_dropped: list[str] = field(default_factory=list)
+    truncated_at_depth: bool | None = None
     latency_ms: float = 0.0

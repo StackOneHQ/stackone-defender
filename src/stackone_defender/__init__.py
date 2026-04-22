@@ -12,12 +12,26 @@ Usage:
 """
 
 from .core.prompt_defense import PromptDefense, create_prompt_defense
+from .sfe.preprocess import (
+    DropDecision,
+    SfePredictor,
+    SfePreprocessResult,
+    get_default_predictor,
+    get_default_sfe_model_path,
+    sfe_preprocess,
+)
 from .types import DefenseResult, RiskLevel, Tier1Result
 
 __all__ = [
     "DefenseResult",
+    "DropDecision",
     "PromptDefense",
     "RiskLevel",
+    "SfePredictor",
+    "SfePreprocessResult",
     "Tier1Result",
     "create_prompt_defense",
+    "get_default_predictor",
+    "get_default_sfe_model_path",
+    "sfe_preprocess",
 ]

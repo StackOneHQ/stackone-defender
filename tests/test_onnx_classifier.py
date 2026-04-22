@@ -57,6 +57,12 @@ class TestOnnxClassifier:
     def test_is_loaded(self):
         assert self.classifier.is_loaded()
 
+    def test_count_tokens_excludes_padding(self):
+        """Padding is fixed at max_length; counts must reflect real tokens for chunk splitting."""
+        short = self.classifier.count_tokens("hello")
+        assert short < self.classifier.get_max_length()
+        assert short <= 32
+
     def test_module_cache_shares_session_across_instances(self):
         onnx_classifier_mod._session_cache.clear()
         c1 = OnnxClassifier(_MODEL_PATH)
@@ -124,3 +130,21 @@ class TestTier2ClassifierNoModel:
         assert c.get_risk_level(0.7) == "high"
         assert c.get_risk_level(0.5) == "medium"
         assert c.get_risk_level(0.3) == "low"
+
+
+class TestOnnxBatchChunkingNoModel:
+    def test_classify_batch_uses_chunks(self, monkeypatch):
+        classifier = OnnxClassifier("/tmp/non-existent")
+        monkeypatch.setattr(classifier, "_ensure_loaded", lambda: None)
+
+        calls = []
+
+        def fake_chunk(texts):
+            calls.append(len(texts))
+            return [0.1] * len(texts)
+
+        monkeypatch.setattr(classifier, "_classify_batch_chunk", fake_chunk)
+        texts = [f"t{i}" for i in range(OnnxClassifier._MAX_BATCH_CHUNK + 5)]
+        scores = classifier.classify_batch(texts)
+        assert len(scores) == len(texts)
+        assert calls == [OnnxClassifier._MAX_BATCH_CHUNK, 5]

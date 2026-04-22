@@ -37,6 +37,8 @@ def _sigmoid(x: float) -> float:
 class OnnxClassifier:
     """ONNX Classifier for fine-tuned MiniLM models."""
 
+    _MAX_BATCH_CHUNK = 32
+
     def __init__(self, model_path: str | None = None):
         self._model_path = model_path or _default_model_path()
         self._session = None
@@ -105,10 +107,17 @@ class OnnxClassifier:
         return _sigmoid(logit)
 
     def classify_batch(self, texts: list[str]) -> list[float]:
-        """Classify multiple texts in batch."""
+        """Classify multiple texts in batch, bounded by chunk size."""
         if not texts:
             return []
         self._ensure_loaded()
+        all_scores: list[float] = []
+        for offset in range(0, len(texts), self._MAX_BATCH_CHUNK):
+            chunk = texts[offset: offset + self._MAX_BATCH_CHUNK]
+            all_scores.extend(self._classify_batch_chunk(chunk))
+        return all_scores
+
+    def _classify_batch_chunk(self, texts: list[str]) -> list[float]:
         import numpy as np
 
         encodings = self._tokenizer.encode_batch(texts)
@@ -118,6 +127,15 @@ class OnnxClassifier:
         results = self._session.run(None, {"input_ids": input_ids, "attention_mask": attention_mask})
         logits = results[0]
         return [_sigmoid(float(logits[i][0])) for i in range(len(texts))]
+
+    def count_tokens(self, text: str) -> int:
+        self._ensure_loaded()
+        encoding = self._tokenizer.encode(text)
+        # Padding is enabled at a fixed length; count only real (attended) tokens.
+        return int(sum(encoding.attention_mask))
+
+    def get_max_length(self) -> int:
+        return self._max_length
 
     def warmup(self) -> None:
         self.load_model()
