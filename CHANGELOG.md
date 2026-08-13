@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.7.4](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.3...stackone-defender-v0.7.4) (2026-08-13)
+
+
+### Features
+
+* **ENG-1761:** port Tier 2 buckets, dedupe, and cost telemetry from TS 0.7.4 ([b92b9f6](https://github.com/StackOneHQ/defender-py/commit/b92b9f661ef927b27542a664d92477e039279758))
+* **ENG-1761:** port Tier 2 fixed-width buckets, dedupe, cost telemetry from TS 0.7.4 ([1e63d09](https://github.com/StackOneHQ/defender-py/commit/1e63d0999d003348c17d6700bf6a03b65a7b2242))
+
+
+### Bug Fixes
+
+* **ENG-1761:** address review — cold_load on failure paths + stronger tests ([e897786](https://github.com/StackOneHQ/defender-py/commit/e897786ff013b95b7b74eecd8df554ee978dd98b))
+
 ## [0.7.3](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.2...stackone-defender-v0.7.3) (2026-07-22)
 
 
