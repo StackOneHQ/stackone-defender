@@ -290,6 +290,27 @@ class PromptDefenseConfig:
 
 
 @dataclass
+class PhaseTimings:
+    """Tier 2 per-phase timing (ms)."""
+
+    prepare_ms: float  # chunk prep: warmup + tokenize + pack
+    infer_ms: float  # the single batched ONNX inference over all chunks
+    aggregate_ms: float  # per-string max aggregation + verdict assembly
+
+
+@dataclass
+class Tier2Stats:
+    """Tier 2 batch shape + padding counts. ``real_tokens / padded_tokens`` is the
+    padding efficiency (1.0 = no waste)."""
+
+    string_count: int  # strings extracted and sent to Tier 2
+    chunk_count: int  # packed chunks (including duplicates) across all strings
+    unique_chunk_count: int  # distinct chunks actually run through ONNX
+    real_tokens: int  # sum of real (non-pad) tokens across chunks
+    padded_tokens: int  # tokens actually run through ONNX, including padding
+
+
+@dataclass
 class DefenseResult:
     """Outcome of ``defend_tool_result`` (Tier 1 sanitize + optional Tier 2 + SFE metadata).
 
@@ -326,3 +347,11 @@ class DefenseResult:
     fields_dropped: list[str] = field(default_factory=list)
     truncated_at_depth: bool | None = None
     latency_ms: float = 0.0
+    # --- Cost telemetry (0.7.4) ---
+    # phase_timings / tier2_stats / cold_load are present only when the cascade
+    # ran the batched Tier 2 classifier (absent in tier3_only mode or when no
+    # strings were scored).
+    phase_timings: PhaseTimings | None = None
+    tier2_stats: Tier2Stats | None = None
+    tier1_ms: float | None = None  # Tier 1 pattern-scan time (ms)
+    cold_load: bool | None = None  # True when this call loaded the ONNX model

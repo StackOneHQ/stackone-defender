@@ -168,7 +168,7 @@ class TestPromptDefenseTier3Cascade:
         mock_t2.get_multihead_config.return_value = None
         mock_t2.get_temperature.return_value = 1.0
         mock_t2.prepare_chunks.side_effect = lambda s: {"chunks": [s], "skipped": False}
-        mock_t2.classify_chunks_batch.side_effect = lambda chunks: [score] * len(chunks)
+        mock_t2.classify_chunks_batch.side_effect = lambda chunks, stats=None: [score] * len(chunks)
         mock_t2.get_config.return_value = {
             "high_risk_threshold": high_risk_threshold,
             "medium_risk_threshold": medium_risk_threshold,
