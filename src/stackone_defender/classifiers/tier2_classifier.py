@@ -17,7 +17,7 @@ from typing import Any
 
 from ..types import MultiheadConfig, RiskLevel, Tier2Result
 from ..utils.boundary import strip_boundary_patterns
-from .onnx_classifier import OnnxClassifier, get_default_model_path
+from .onnx_classifier import BatchTokenStats, OnnxClassifier, get_default_model_path
 
 _logger = logging.getLogger(__name__)
 
@@ -343,14 +343,16 @@ class Tier2Classifier:
             return {"chunks": [], "skipped": True, "skip_reason": "No classifiable sentences"}
         return {"chunks": self._pack_sentences(sentences, max_content_tokens), "skipped": False}
 
-    def classify_chunks_batch(self, chunks: list[str]) -> list[float]:
+    def classify_chunks_batch(self, chunks: list[str], stats: BatchTokenStats | None = None) -> list[float]:
         """Single-head batch classify. Returns main-head scores only."""
         if not chunks:
             return []
         self._onnx.warmup()
-        return self._onnx.classify_batch(chunks)
+        return self._onnx.classify_batch(chunks, stats)
 
-    def classify_chunks_batch_pair(self, chunks: list[str]) -> list[tuple[float, float | None]]:
+    def classify_chunks_batch_pair(
+        self, chunks: list[str], stats: BatchTokenStats | None = None
+    ) -> list[tuple[float, float | None]]:
         """Multi-head variant. Returns ``(main, aux)`` per chunk.
 
         Aux is ``None`` per-row for single-head models. Callers in the
@@ -359,7 +361,7 @@ class Tier2Classifier:
         if not chunks:
             return []
         self._onnx.warmup()
-        return self._onnx.classify_batch_pair(chunks)
+        return self._onnx.classify_batch_pair(chunks, stats)
 
     # ------------------------------------------------------------------
     # Helpers / introspection

@@ -11,10 +11,19 @@ from __future__ import annotations
 import logging
 import math
 import threading
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 _logger = logging.getLogger(__name__)
+
+
+@dataclass
+class BatchTokenStats:
+    """Padding accounting accumulated across a batched classification (#6 telemetry)."""
+
+    real_tokens: int = 0  # sum of real (non-pad) tokens across all chunks
+    padded_tokens: int = 0  # tokens actually run through ONNX, including padding
 
 # Shared across all OnnxClassifier instances (keyed by resolved model dir path).
 # Tuple is (session, tokenizer, count_tokenizer); the count tokenizer is
@@ -61,6 +70,10 @@ class OnnxClassifier:
     """
 
     _MAX_BATCH_CHUNK = 32
+    # Fixed pad widths (ascending). A string pads to the smallest bucket >= its
+    # token length, so its padded length — and thus its quantized score — is a
+    # function of the string alone, not its batch neighbours (deterministic).
+    _PAD_BUCKETS = (32, 64, 128, 256)
 
     def __init__(self, model_path: str | None = None, temperature_t: float | None = None):
         self._model_path = model_path or get_default_model_path()
@@ -142,7 +155,10 @@ class OnnxClassifier:
                 tokenizer_path = str(Path(self._model_path) / "tokenizer.json")
                 self._tokenizer = Tokenizer.from_file(tokenizer_path)
                 self._tokenizer.enable_truncation(max_length=self._max_length)
-                self._tokenizer.enable_padding(length=self._max_length)
+                # No fixed padding: classify_batch_pair pads each batch per bucket
+                # width (see _PAD_BUCKETS), so a string's padded length depends only
+                # on itself. Single classify runs at the string's real length.
+                self._tokenizer.no_padding()
 
                 # tokenizer.json bakes in truncation+padding, so disable both
                 # here to count true length rather than a value capped at
@@ -199,36 +215,77 @@ class OnnxClassifier:
         main_logit = float(row[0]) if hasattr(row, "__len__") and len(row) > 0 else float(row)
         return _sigmoid(main_logit / t), None
 
-    def classify_batch(self, texts: list[str]) -> list[float]:
+    def classify_batch(self, texts: list[str], stats: BatchTokenStats | None = None) -> list[float]:
         """Classify multiple texts; returns main-head scores only.
 
         Back-compat wrapper around :meth:`classify_batch_pair`.
         """
-        return [main for main, _ in self.classify_batch_pair(texts)]
+        return [main for main, _ in self.classify_batch_pair(texts, stats)]
 
-    def classify_batch_pair(self, texts: list[str]) -> list[tuple[float, float | None]]:
+    def classify_batch_pair(
+        self, texts: list[str], stats: BatchTokenStats | None = None
+    ) -> list[tuple[float, float | None]]:
         """Classify multiple texts, returning ``(main, aux)`` per row.
 
-        Aux is ``None`` per-row for single-head models. Chunks the input to
-        bound native memory; the attention matrix is ``O(chunk * seq_len^2)``,
-        and for MiniLM (``max_length=256``) a chunk of 32 keeps memory
-        under ~50MB per call.
+        Aux is ``None`` per-row for single-head models. Groups strings into fixed
+        pad-width buckets by token length, batches within each bucket, and pads
+        every row to the BUCKET width (not the batch max). This bounds padding
+        waste and makes a string's padded length — hence its quantized score —
+        depend only on itself, not its batch neighbours. Chunks of 32 bound
+        native memory (attention is ``O(chunk * seq_len^2)``). Results scatter
+        back to input order. ``stats`` accumulates padding counts when provided.
         """
         if not texts:
             return []
         self._ensure_loaded()
-        all_pairs: list[tuple[float, float | None]] = []
-        for offset in range(0, len(texts), self._MAX_BATCH_CHUNK):
-            chunk = texts[offset : offset + self._MAX_BATCH_CHUNK]
-            all_pairs.extend(self._classify_batch_chunk_pair(chunk))
-        return all_pairs
-
-    def _classify_batch_chunk_pair(self, texts: list[str]) -> list[tuple[float, float | None]]:
-        import numpy as np
 
         encodings = self._tokenizer.encode_batch(texts)
-        input_ids = np.array([e.ids for e in encodings], dtype=np.int64)
-        attention_mask = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+        last_bucket = self._PAD_BUCKETS[-1]
+        buckets: dict[int, list[int]] = {}
+        for i, enc in enumerate(encodings):
+            length = len(enc.ids)
+            width = next((b for b in self._PAD_BUCKETS if length <= b), last_bucket)
+            buckets.setdefault(width, []).append(i)
+
+        pairs: list[tuple[float, float | None] | None] = [None] * len(texts)
+        for width in self._PAD_BUCKETS:
+            bucket_idxs = buckets.get(width)
+            if not bucket_idxs:
+                continue
+            for offset in range(0, len(bucket_idxs), self._MAX_BATCH_CHUNK):
+                idxs = bucket_idxs[offset : offset + self._MAX_BATCH_CHUNK]
+                chunk = [encodings[i] for i in idxs]
+                if stats is not None:
+                    # Every row pads to the bucket width; real_tokens is useful work.
+                    stats.padded_tokens += len(chunk) * width
+                    for enc in chunk:
+                        stats.real_tokens += len(enc.ids)
+                chunk_pairs = self._classify_batch_chunk_pair(chunk, width)
+                for k, orig_idx in enumerate(idxs):
+                    pairs[orig_idx] = chunk_pairs[k]
+
+        return cast(list[tuple[float, float | None]], pairs)
+
+    def _classify_batch_chunk_pair(
+        self, encodings: list, pad_to: int | None = None
+    ) -> list[tuple[float, float | None]]:
+        """Run one pre-tokenized chunk through ONNX, padding rows to ``pad_to``.
+
+        Rows are padded to at least the chunk's real max, so a caller can never
+        under-pad. Inputs are pre-tokenized so ``classify_batch_pair`` can
+        length-bucket without re-tokenizing.
+        """
+        import numpy as np
+
+        actual_max = max(len(e.ids) for e in encodings)
+        max_len = max(pad_to, actual_max) if pad_to is not None else actual_max
+        batch_size = len(encodings)
+        input_ids = np.zeros((batch_size, max_len), dtype=np.int64)
+        attention_mask = np.zeros((batch_size, max_len), dtype=np.int64)
+        for i, enc in enumerate(encodings):
+            n = len(enc.ids)
+            input_ids[i, :n] = enc.ids
+            attention_mask[i, :n] = enc.attention_mask
 
         results = self._session.run(None, {"input_ids": input_ids, "attention_mask": attention_mask})
         logits = results[0]
@@ -237,12 +294,12 @@ class OnnxClassifier:
         t = self._temperature_t
         pairs: list[tuple[float, float | None]] = []
         if self._output_mode == "multi":
-            for i in range(len(texts)):
+            for i in range(batch_size):
                 main = _sigmoid(float(logits[i][0]) / t)
                 aux = _sigmoid(float(logits[i][1]) / t)
                 pairs.append((main, aux))
         else:
-            for i in range(len(texts)):
+            for i in range(batch_size):
                 row = logits[i]
                 # ``row`` may be a scalar (shape ``[batch]``) or 1-vector.
                 main_logit = float(row[0]) if hasattr(row, "__len__") and len(row) > 0 else float(row)

@@ -14,6 +14,7 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from ..classifiers.onnx_classifier import BatchTokenStats
 from ..classifiers.pattern_detector import PatternDetector, create_pattern_detector
 from ..classifiers.tier2_classifier import Tier2Classifier, create_tier2_classifier
 from ..classifiers.tier3_orchestrator import get_default_tier3_provider
@@ -23,9 +24,11 @@ from ..types import (
     DefenderMode,
     DefenseResult,
     MultiheadConfig,
+    PhaseTimings,
     PromptDefenseConfig,
     RiskLevel,
     Tier1Result,
+    Tier2Stats,
     Tier3EscalationBand,
     Tier3Provider,
     Tier3Result,
@@ -78,6 +81,10 @@ class _Tier2Outcome:
     multihead_blocked: bool | None = None
     max_sentence: str | None = None
     skip_reason: str | None = None
+    # Cost telemetry — set only when the batched classifier ran on this call.
+    phase_timings: PhaseTimings | None = None
+    tier2_stats: Tier2Stats | None = None
+    cold_load: bool | None = None
 
 
 def _extract_strings(
@@ -596,8 +603,10 @@ class PromptDefense:
                     e,
                 )
 
+        t_tier1_start = time.perf_counter()
         sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
         detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
+        tier1_ms = (time.perf_counter() - t_tier1_start) * 1000
 
         tier2 = (
             self._evaluate_tier2(self._tier2, sfe_filtered_value, depth_flag)
@@ -649,6 +658,10 @@ class PromptDefense:
             fields_dropped=fields_dropped,
             truncated_at_depth=depth_flag["hit"] or None,
             latency_ms=(time.perf_counter() - start_time) * 1000,
+            phase_timings=tier2.phase_timings,
+            tier2_stats=tier2.tier2_stats,
+            tier1_ms=tier1_ms,
+            cold_load=tier2.cold_load,
         )
 
     def _defend_tool_result_sync(
@@ -682,6 +695,7 @@ class PromptDefense:
                 )
 
         # Tier 1: pattern-based sanitization on the original payload (matches TS 0.6.3).
+        t_tier1_start = time.perf_counter()
         sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
 
         # Collect Tier 1 metadata
@@ -694,6 +708,7 @@ class PromptDefense:
             field for field, methods in mbf.items()
             if any(m in active_methods for m in methods)
         ]
+        tier1_ms = (time.perf_counter() - t_tier1_start) * 1000
 
         # Tier 2 runs on the SFE-filtered view (full value if SFE off) and
         # produces a self-contained outcome -- skip reason or the
@@ -758,6 +773,10 @@ class PromptDefense:
             fields_dropped=fields_dropped,
             truncated_at_depth=depth_flag["hit"] or None,
             latency_ms=(time.perf_counter() - start_time) * 1000,
+            phase_timings=tier2.phase_timings,
+            tier2_stats=tier2.tier2_stats,
+            tier1_ms=tier1_ms,
+            cold_load=tier2.cold_load,
         )
 
     # ------------------------------------------------------------------
@@ -802,6 +821,8 @@ class PromptDefense:
             )
             return out
 
+        # Phase 1: prepare chunks (warmup + tokenize + pack).
+        t_prep_start = time.perf_counter()
         all_chunks, string_ranges, skip_reasons = self._tier2_build_chunks(tier2, strings)
         if not all_chunks:
             out.skip_reason = (
@@ -811,21 +832,43 @@ class PromptDefense:
             )
             return out
 
+        # Phase 2: one batched (deduped) inference over all chunks.
+        t_infer_start = time.perf_counter()
+        # Set now (before the failure early-return) so cold_load is a bool
+        # whenever inference was attempted — success or failure (TS 0.7.4 parity).
+        out.cold_load = not tier2.is_ready()
+        stats = BatchTokenStats()
         multihead_cfg = tier2.get_multihead_config()
-        all_scores, all_pairs, infer_skip = self._tier2_run_inference(
-            tier2, all_chunks, multihead_cfg
+        all_scores, all_pairs, infer_skip, unique_count = self._tier2_run_inference(
+            tier2, all_chunks, multihead_cfg, stats
         )
         if infer_skip is not None:
             out.skip_reason = infer_skip
         if all_scores is None:
             return out
+        t_agg_start = time.perf_counter()
 
+        # Phase 3: per-string aggregation + verdict.
         agg = self._tier2_score_strings(
             all_chunks, all_scores, all_pairs, string_ranges, multihead_cfg
         )
         out.raw_score = agg.max_main
         out.max_sentence = agg.max_main_sentence
         self._tier2_finalize(tier2, out, agg, multihead_cfg)
+
+        now = time.perf_counter()
+        out.phase_timings = PhaseTimings(
+            prepare_ms=(t_infer_start - t_prep_start) * 1000,
+            infer_ms=(t_agg_start - t_infer_start) * 1000,
+            aggregate_ms=(now - t_agg_start) * 1000,
+        )
+        out.tier2_stats = Tier2Stats(
+            string_count=len(strings),
+            chunk_count=len(all_chunks),
+            unique_chunk_count=unique_count,
+            real_tokens=stats.real_tokens,
+            padded_tokens=stats.padded_tokens,
+        )
         return out
 
     @staticmethod
@@ -859,31 +902,50 @@ class PromptDefense:
         tier2: Tier2Classifier,
         all_chunks: list[str],
         multihead_cfg: MultiheadConfig | None,
-    ) -> tuple[list[float] | None, list[tuple[float, float | None]] | None, str | None]:
+        stats: BatchTokenStats,
+    ) -> tuple[list[float] | None, list[tuple[float, float | None]] | None, str | None, int]:
         """Run classifier inference with the multi-head misconfig guard.
 
-        Returns ``(all_scores, all_pairs, skip_reason)``. ``skip_reason``
-        is non-``None`` either on inference failure or when ``multihead``
-        is configured but the model emits only single-head logits -- in
-        that case ``all_pairs`` is forced to ``None`` so the caller falls
-        back to the single-head decision path instead of silently
-        disabling Tier 2 via the aux-veto branch.
+        Returns ``(all_scores, all_pairs, skip_reason, unique_chunk_count)``.
+        ``skip_reason`` is non-``None`` either on inference failure or when
+        ``multihead`` is configured but the model emits only single-head logits
+        -- in that case ``all_pairs`` is forced to ``None`` so the caller falls
+        back to the single-head decision path instead of silently disabling
+        Tier 2 via the aux-veto branch. ``stats`` accumulates padding counts.
         """
+        # Dedupe before inference: identical chunk strings score identically
+        # (fixed-width buckets make scores neighbour-independent), so classify
+        # each unique chunk once and fan the score back out. List responses
+        # repeat enum/status/boolean values heavily — most of the saving here.
+        unique_chunks: list[str] = []
+        unique_index: dict[str, int] = {}
+        dedupe_index: list[int] = []
+        for chunk in all_chunks:
+            u = unique_index.get(chunk)
+            if u is None:
+                u = len(unique_chunks)
+                unique_index[chunk] = u
+                unique_chunks.append(chunk)
+            dedupe_index.append(u)
+        unique_count = len(unique_chunks)
+
         try:
             if multihead_cfg is not None:
-                pairs = tier2.classify_chunks_batch_pair(all_chunks)
-                if pairs and all(p[1] is None for p in pairs):
+                unique_pairs = tier2.classify_chunks_batch_pair(unique_chunks, stats)
+                if unique_pairs and all(p[1] is None for p in unique_pairs):
                     return (
                         None,
                         None,
                         "multihead configured but model emits single-head logits"
                         " -- remove `multihead` config or use a dual-head model",
+                        unique_count,
                     )
-                return [p[0] for p in pairs], pairs, None
-            scores = tier2.classify_chunks_batch(all_chunks)
-            return scores, None, None
+                all_pairs = [unique_pairs[u] for u in dedupe_index]
+                return [p[0] for p in all_pairs], all_pairs, None, unique_count
+            unique_scores = tier2.classify_chunks_batch(unique_chunks, stats)
+            return [unique_scores[u] for u in dedupe_index], None, None, unique_count
         except Exception as e:
-            return None, None, f"Inference error: {e}"
+            return None, None, f"Inference error: {e}", unique_count
 
     @staticmethod
     def _coerce_safe_score(raw: Any) -> float:

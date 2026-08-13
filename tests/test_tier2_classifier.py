@@ -65,7 +65,7 @@ class TestTier2ClassifierConfig:
             def warmup(self):
                 return None
 
-            def classify_batch(self, chunks):
+            def classify_batch(self, chunks, stats=None):
                 return [0.1] * len(chunks)
 
         c._onnx = _FakeOnnx()  # type: ignore[attr-defined]
@@ -151,7 +151,7 @@ class TestClassifyChunksBatchPair:
             def warmup(self):
                 return None
 
-            def classify_batch_pair(self, chunks):
+            def classify_batch_pair(self, chunks, stats=None):
                 return [(0.3, 0.7)] * len(chunks)
 
         c._onnx = _FakeOnnx()  # type: ignore[attr-defined]
