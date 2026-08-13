@@ -556,6 +556,9 @@ class TestTier2Telemetry:
             },
             "crm_list",
         )
+        # Verdict must be correct — a dedupe fan-out misalignment would corrupt it.
+        assert result.allowed is False  # the injection string blocks
+        assert result.tier2_score is not None and result.tier2_score > 0.5
         assert result.tier1_ms is not None
         assert result.cold_load is not None
         assert result.phase_timings is not None
@@ -575,3 +578,23 @@ class TestTier2Telemetry:
         assert result.phase_timings is None
         assert result.tier2_stats is None
         assert result.cold_load is None
+
+
+@patch("stackone_defender.core.prompt_defense.create_tier2_classifier")
+class TestColdLoadOnFailurePath:
+    """cold_load must be a bool whenever inference was attempted — including the
+    failure paths (inference error / multihead misconfig), matching TS 0.7.4."""
+
+    def test_cold_load_is_bool_on_inference_error(self, mock_create):
+        mock_t2 = MagicMock()
+        mock_t2.get_multihead_config.return_value = None
+        mock_t2.is_ready.return_value = True
+        mock_t2.prepare_chunks.side_effect = lambda s: {"chunks": [s], "skipped": False}
+        mock_t2.classify_chunks_batch.side_effect = RuntimeError("boom")
+        mock_create.return_value = mock_t2
+
+        defense = create_prompt_defense(enable_tier2=True, block_high_risk=True)
+        result = defense.defend_tool_result({"body": "some content to classify here"}, "test_tool")
+
+        assert result.tier2_skip_reason is not None  # inference failed
+        assert result.cold_load is False  # bool, not None — inference was attempted

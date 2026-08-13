@@ -834,7 +834,9 @@ class PromptDefense:
 
         # Phase 2: one batched (deduped) inference over all chunks.
         t_infer_start = time.perf_counter()
-        cold_load = not tier2.is_ready()
+        # Set now (before the failure early-return) so cold_load is a bool
+        # whenever inference was attempted — success or failure (TS 0.7.4 parity).
+        out.cold_load = not tier2.is_ready()
         stats = BatchTokenStats()
         multihead_cfg = tier2.get_multihead_config()
         all_scores, all_pairs, infer_skip, unique_count = self._tier2_run_inference(
@@ -855,7 +857,6 @@ class PromptDefense:
         self._tier2_finalize(tier2, out, agg, multihead_cfg)
 
         now = time.perf_counter()
-        out.cold_load = cold_load
         out.phase_timings = PhaseTimings(
             prepare_ms=(t_infer_start - t_prep_start) * 1000,
             infer_ms=(t_agg_start - t_infer_start) * 1000,

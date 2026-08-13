@@ -362,8 +362,10 @@ class TestFixedWidthBuckets:
         med = "The quarterly revenue report shows steady regional growth this year. " * 3
         long = "benign filler content about weather and pay schedules and meetings " * 12
         benign = "The cat sat on the mat."
-        # 48 texts spanning 32/64/128/256 buckets and crossing the 32-chunk cap.
-        texts = [short, med, long, benign] * 12
+        # 40 short/benign strings land in the 32 bucket (>32 -> crosses the
+        # 32-chunk cap), plus longer strings in the 64/128 buckets. Exercises
+        # both cross-chunk (within a bucket) and cross-bucket scatter.
+        texts = [short, benign] * 20 + [med, long] * 8
         batch = c.classify_batch(texts)
         singles = [c.classify(t) for t in texts]
 
@@ -371,9 +373,9 @@ class TestFixedWidthBuckets:
         # Every index realigns to its own single score within the padding drift.
         for b, s in zip(batch, singles, strict=True):
             assert abs(b - s) < 0.05
-        # Injection copies (index 0, 4, ...) high; benign (index 3, 7, ...) low.
+        # Injection copies (even indices) high; benign (odd indices) low.
         assert batch[0] > 0.5
-        assert batch[3] < 0.5
+        assert batch[1] < 0.5
 
     def test_duplicate_strings_score_identically(self):
         c = OnnxClassifier(_BUNDLED_MODEL_PATH)
