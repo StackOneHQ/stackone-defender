@@ -264,7 +264,7 @@ class OnnxClassifier:
                 for k, orig_idx in enumerate(idxs):
                     pairs[orig_idx] = chunk_pairs[k]
 
-        return cast("list[tuple[float, float | None]]", pairs)
+        return cast(list[tuple[float, float | None]], pairs)
 
     def _classify_batch_chunk_pair(
         self, encodings: list, pad_to: int | None = None
