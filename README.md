@@ -183,6 +183,7 @@ defense = create_prompt_defense(
 defense = create_prompt_defense(
     enable_tier1=True,
     enable_tier2=True,
+    require_tier2=False,  # True: raise if Tier 2 can't load (fail closed) instead of degrading to Tier 1
     block_high_risk=False,
     default_risk_level="low",
     annotate_boundary=False,  # True: wrap risky strings with [UD-…] tags (npm: annotateBoundary)
@@ -206,18 +207,30 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DefenseResult:
-    allowed: bool
-    risk_level: RiskLevel
-    sanitized: Any
-    detections: list[str]
-    fields_sanitized: list[str]
-    patterns_by_field: dict[str, list[str]]
+    allowed: bool                             # gating decision (respects block_high_risk)
+    risk_level: RiskLevel                     # diagnostic; max of Tier 1 / Tier 2
+    sanitized: Any                            # ORIGINAL content (never redacted); optionally [UD-…]-wrapped
+    detections: list[str]                     # Tier 1 pattern names detected
+    fields_sanitized: list[str]               # fields where a threat was DETECTED (not modified)
+    patterns_by_field: dict[str, list[str]]   # patterns detected per field
     tier2_score: float | None = None
+    tier2_raw_score: float | None = None
+    tier2_aux_score: float | None = None      # multi-head models only
+    tier2_multihead_blocked: bool | None = None
     tier2_skip_reason: str | None = None
     max_sentence: str | None = None
+    tier3: Tier3Result | None = None          # present when Tier 3 ran
     fields_dropped: list[str] = field(default_factory=list)
     truncated_at_depth: bool | None = None
     latency_ms: float = 0.0
+    # Cost telemetry — present only when the batched Tier 2 classifier ran
+    phase_timings: PhaseTimings | None = None       # prepare / infer / aggregate ms
+    tier2_stats: Tier2Stats | None = None           # string/chunk/unique counts, real/padded tokens
+    tier1_ms: float | None = None
+    cold_load: bool | None = None
+    # Operational signals
+    tier2_available: bool | None = None       # False when Tier 2 enabled but failed to load
+    coverage_degraded: bool | None = None      # True when Tier 1 detection coverage was capped
 ```
 
 ### `defense.defend_tool_results(items)`
