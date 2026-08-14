@@ -27,6 +27,14 @@ DEFAULT_TIER2_CLASSIFIER_CONFIG: dict[str, Any] = {
     "medium_risk_threshold": 0.5,
     "min_text_length": 10,
     "max_text_length": 10000,
+    # Token-degeneracy (OOD) guard threshold. A chunk is dropped from Tier 2
+    # scoring (its mean-pooled score is arbitrary off-distribution) only when its
+    # most-frequent content token covers >= this share AND it uses few distinct
+    # tokens AND the dominant token is not [UNK] — repeated rule/box chars,
+    # base64/hex. The distinct-token floor keeps the share test from being padded
+    # around; the [UNK] exclusion keeps homoglyph/OOV rows from being suppressed.
+    # Tier 1 still catches literal and (via decode) encoded attacks. > 1 disables.
+    "degeneracy_max_token_share": 2 / 3,
 }
 
 
@@ -151,8 +159,11 @@ class Tier2Classifier:
         self._model_path: str = merged["onnx_model_path"]
         self._temperature_t: float | None = merged.get("temperature_t")
         self._multihead: MultiheadConfig | None = merged.get("multihead")
+        self._degeneracy_max_token_share: float = float(merged["degeneracy_max_token_share"])
 
-        self._onnx = OnnxClassifier(self._model_path, self._temperature_t)
+        self._onnx = OnnxClassifier(
+            self._model_path, self._temperature_t, self._degeneracy_max_token_share
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -442,6 +453,7 @@ class Tier2Classifier:
             "onnx_model_path": self._model_path,
             "temperature_t": self.get_temperature(),
             "multihead": self._multihead,
+            "degeneracy_max_token_share": self._degeneracy_max_token_share,
         }
 
     def get_risk_level(self, score: float) -> RiskLevel:

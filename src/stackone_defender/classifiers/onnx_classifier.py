@@ -75,7 +75,23 @@ class OnnxClassifier:
     # function of the string alone, not its batch neighbours (deterministic).
     _PAD_BUCKETS = (32, 64, 128, 256)
 
-    def __init__(self, model_path: str | None = None, temperature_t: float | None = None):
+    # Token-degeneracy (OOD) guard. Below this many content tokens, token-share
+    # is too coarse to mean anything (a 1-2 token row is trivially "dominated");
+    # matches the shortest decorative run that still false-fires post-collapse
+    # (``─``x3 -> 3 content tokens). Damp only when the row draws on at most
+    # _DEGENERACY_MAX_DISTINCT_TOKENS distinct tokens — padding an attack with
+    # copies of one token can push the share past 2/3 but cannot remove the
+    # attack's own vocabulary, so the distinct-token floor is a structural, not
+    # tuned, backstop against that bypass.
+    _DEGENERACY_MIN_CONTENT_TOKENS = 3
+    _DEGENERACY_MAX_DISTINCT_TOKENS = 4
+
+    def __init__(
+        self,
+        model_path: str | None = None,
+        temperature_t: float | None = None,
+        degeneracy_max_token_share: float | None = None,
+    ):
         self._model_path = model_path or get_default_model_path()
         self._session = None
         self._tokenizer = None
@@ -83,6 +99,14 @@ class OnnxClassifier:
         self._count_tokenizer = None
         self._max_length = 256
         self._load_failed = False
+        # Token-degeneracy guard threshold; > 1 disables. See _is_degenerate.
+        self._degeneracy_max_token_share = 2 / 3
+        if degeneracy_max_token_share is not None and math.isfinite(degeneracy_max_token_share):
+            self._degeneracy_max_token_share = float(degeneracy_max_token_share)
+        # Cached [UNK] id, resolved lazily from the loaded tokenizer. ``None`` =
+        # not yet resolved or no [UNK] concept; see _get_unk_token_id.
+        self._unk_token_id: int | None = None
+        self._unk_resolved = False
         # Output mode is detected lazily from the logits shape on the first
         # inference call. ``None`` until then.
         self._output_mode: Literal["single", "multi"] | None = None
@@ -200,6 +224,10 @@ class OnnxClassifier:
         import numpy as np
 
         encoding = self._tokenizer.encode(text)
+        # Fix 3: token-degeneracy guard — skip inference on off-distribution
+        # input; its mean-pooled score is arbitrary. Damp to a benign 0.
+        if self._is_degenerate(encoding.ids):
+            return 0.0, None
         input_ids = np.array([encoding.ids], dtype=np.int64)
         attention_mask = np.array([encoding.attention_mask], dtype=np.int64)
 
@@ -266,7 +294,60 @@ class OnnxClassifier:
                 for k, orig_idx in enumerate(idxs):
                     pairs[orig_idx] = chunk_pairs[k]
 
+        # Fix 3: token-degeneracy guard — damp off-distribution rows to a benign
+        # 0 so they drop out of any upstream max. Reuses the already-computed ids.
+        for i, enc in enumerate(encodings):
+            if self._is_degenerate(enc.ids):
+                pairs[i] = (0.0, None)
+
         return cast(list[tuple[float, float | None]], pairs)
+
+    def _get_unk_token_id(self) -> int | None:
+        """Resolve the tokenizer's ``[UNK]`` id, cached. Returns ``None`` when the
+        tokenizer has no ``[UNK]`` concept (the guard then skips its factor-3 check)."""
+        if self._unk_resolved:
+            return self._unk_token_id
+        self._unk_resolved = True
+        try:
+            self._unk_token_id = self._tokenizer.token_to_id("[UNK]")
+        except Exception:
+            self._unk_token_id = None
+        return self._unk_token_id
+
+    def _is_degenerate(self, ids: list[int]) -> bool:
+        """Token-degeneracy (OOD) test over a tokenized row. Damps only when ALL
+        of these hold over the content tokens (excluding [CLS]/[SEP]):
+
+        1. the single most-frequent token covers >= ``degeneracy_max_token_share``,
+        2. the row draws on <= ``_DEGENERACY_MAX_DISTINCT_TOKENS`` distinct tokens, and
+        3. the dominant token is NOT [UNK].
+
+        Factor 2 blocks a padding attack; factor 3 blocks a homoglyph attack —
+        fullwidth / zero-width / other OOV chars collapse to repeated [UNK], the
+        signature of encoding evasion (more suspicious, not less), so those rows
+        are left to score rather than suppressed. Reuses the ids the model runs on.
+        """
+        threshold = self._degeneracy_max_token_share
+        if not (0 < threshold <= 1):  # disabled
+            return False
+        has_specials = len(ids) >= 2
+        content = ids[1:-1] if has_specials else ids
+        n = len(content)
+        if n < self._DEGENERACY_MIN_CONTENT_TOKENS:
+            return False
+        counts: dict[int, int] = {}
+        max_freq = 0
+        dominant_id = -1
+        for tok in content:
+            c = counts.get(tok, 0) + 1
+            counts[tok] = c
+            if c > max_freq:
+                max_freq = c
+                dominant_id = tok
+        if max_freq / n < threshold or len(counts) > self._DEGENERACY_MAX_DISTINCT_TOKENS:
+            return False
+        unk = self._get_unk_token_id()
+        return unk is None or dominant_id != unk
 
     def _classify_batch_chunk_pair(
         self, encodings: list, pad_to: int | None = None
