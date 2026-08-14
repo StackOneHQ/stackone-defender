@@ -208,10 +208,14 @@ class SizeMetrics:
 
 @dataclass
 class SanitizationMetadata:
+    # Detect-and-gate: these record DETECTION evidence — content is never modified.
+    # Fields where Tier 1 detected a threat.
     fields_sanitized: list[str] = field(default_factory=list)
+    # Detection methods that fired per field (labels, not applied transforms).
     methods_by_field: dict[str, list[SanitizationMethod]] = field(default_factory=dict)
+    # Patterns detected per field (detected, not removed — content is preserved).
     patterns_removed_by_field: dict[str, list[str]] = field(default_factory=dict)
-    overall_risk_level: RiskLevel = "medium"
+    overall_risk_level: RiskLevel = "low"
     cumulative_risk_escalated: bool = False
     total_latency_ms: float = 0.0
     size_metrics: SizeMetrics = field(default_factory=SizeMetrics)
@@ -219,6 +223,10 @@ class SanitizationMetadata:
     risky_field_names: list[str] = field(default_factory=list)
     # Paths of keys removed due to prototype-pollution risk.
     dangerous_keys_removed: list[str] = field(default_factory=list)
+    # True when Tier 1 detection coverage was capped (a field over
+    # max_field_analysis_length, or a wide array/object only partially scanned).
+    # Content is always returned in full — only detection coverage was reduced.
+    analysis_truncated: bool = False
 
 
 @dataclass
@@ -355,3 +363,9 @@ class DefenseResult:
     tier2_stats: Tier2Stats | None = None
     tier1_ms: float | None = None  # Tier 1 pattern-scan time (ms)
     cold_load: bool | None = None  # True when this call loaded the ONNX model
+    # False when Tier 2 was enabled but the model/runtime failed to load (silently
+    # degraded to Tier 1 only). Omitted (None) when Tier 2 loaded fine or is disabled.
+    tier2_available: bool | None = None
+    # True when Tier 1 detection coverage was reduced on this call (depth/size limit
+    # hit, or analysis truncated on a wide payload). Content is still returned in full.
+    coverage_degraded: bool | None = None

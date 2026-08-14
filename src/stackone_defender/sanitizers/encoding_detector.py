@@ -441,7 +441,9 @@ MORSE_TABLE: dict[str, str] = {
     "----.": "9",
 }
 
-_MORSE_GATE = re.compile(r"(?:[.-]+ ){4,}[.-]+")
+# Symbol groups bounded to {1,8} so a long run of dots stays linear (ReDoS guard);
+# unbounded [.-]+ backtracked catastrophically (~200k dots blocked the loop).
+_MORSE_GATE = re.compile(r"(?:[.-]{1,8} ){4,}[.-]{1,8}")
 
 
 def _detect_morse(text: str) -> list[EncodingDetection]:

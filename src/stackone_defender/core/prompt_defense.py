@@ -40,6 +40,10 @@ from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanit
 
 _logger = logging.getLogger(__name__)
 
+# Module-scoped (not per-instance): PromptDefense is constructed per-request in
+# some hosts, so an instance flag would warn at full request volume.
+_tier2_unavailable_warned = False
+
 _DEFAULT_TIER3_BAND = Tier3EscalationBand(lower=0.3, upper=0.85)
 _DEFAULT_TIER3_MAX_TEXT_LENGTH = 10000
 
@@ -85,6 +89,8 @@ class _Tier2Outcome:
     phase_timings: PhaseTimings | None = None
     tier2_stats: Tier2Stats | None = None
     cold_load: bool | None = None
+    # False when Tier 2 was enabled but the model/runtime failed to load.
+    tier2_available: bool | None = None
 
 
 def _extract_strings(
@@ -183,8 +189,9 @@ class PromptDefense:
         tier2_fields: list[str] | None = None,
         use_sfe: bool | dict[str, Any] = False,
         block_high_risk: bool = False,
-        default_risk_level: RiskLevel = "medium",
+        default_risk_level: RiskLevel = "low",
         annotate_boundary: bool = False,
+        require_tier2: bool = False,
         enable_tier3: bool = False,
         defender_mode: DefenderMode = "cascade",
         tier3: dict[str, Any] | None = None,
@@ -192,6 +199,7 @@ class PromptDefense:
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
+        self._tier2_required = require_tier2
 
         self._tier2_fields = tier2_fields
         self._sfe_enabled = False
@@ -211,7 +219,6 @@ class PromptDefense:
             traversal=self._config.traversal,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
-            block_high_risk=block_high_risk,
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
             annotate_boundary=annotate_boundary,
         )
@@ -313,6 +320,34 @@ class PromptDefense:
 
     def is_tier2_ready(self) -> bool:
         return self._tier2.is_ready() if self._tier2 else False
+
+    def _handle_tier2_unavailable(self, err: Exception) -> None:
+        """Tier 2 enabled but the model/runtime failed to load. Fail closed when
+        require_tier2 is set; otherwise warn once per process and continue
+        Tier-1-only (fail open)."""
+        if self._tier2_required:
+            raise RuntimeError(
+                f"[defender] Tier 2 is required (require_tier2=True) but the model/runtime "
+                f"failed to load: {err}. Install the optional dependencies with "
+                f"`pip install stackone-defender[onnx]`."
+            )
+        global _tier2_unavailable_warned
+        if not _tier2_unavailable_warned:
+            _tier2_unavailable_warned = True
+            _logger.warning(
+                "[defender] Tier 2 unavailable (model/runtime failed to load); "
+                "continuing Tier-1-only. Reason: %s",
+                err,
+            )
+
+    @staticmethod
+    def _coverage_degraded(metadata: Any, depth_flag: dict[str, bool]) -> bool | None:
+        """True when Tier 1 detection coverage was reduced (depth/size limit hit,
+        or a wide payload's analysis was capped). Content is still returned in full."""
+        sm = metadata.size_metrics
+        if depth_flag.get("hit") or metadata.analysis_truncated or sm.size_limit_hit or sm.depth_limit_hit:
+            return True
+        return None
 
     def _resolve_tier3_provider(self) -> Tier3Provider | None:
         return self._tier3_custom_provider or get_default_tier3_provider()
@@ -535,6 +570,7 @@ class PromptDefense:
             fields_dropped=[],
             truncated_at_depth=depth_flag["hit"] or None,
             latency_ms=(time.perf_counter() - start_time) * 1000,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     def defend_tool_result(self, value: Any, tool_name: str) -> DefenseResult:
@@ -662,6 +698,8 @@ class PromptDefense:
             tier2_stats=tier2.tier2_stats,
             tier1_ms=tier1_ms,
             cold_load=tier2.cold_load,
+            tier2_available=tier2.tier2_available,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     def _defend_tool_result_sync(
@@ -777,6 +815,8 @@ class PromptDefense:
             tier2_stats=tier2.tier2_stats,
             tier1_ms=tier1_ms,
             cold_load=tier2.cold_load,
+            tier2_available=tier2.tier2_available,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     # ------------------------------------------------------------------
@@ -801,6 +841,18 @@ class PromptDefense:
         ``PYTHONOPTIMIZE``.
         """
         out = _Tier2Outcome()
+
+        # Sample cold-start BEFORE warmup, then load the model. A load failure
+        # (missing optional deps) is a hard "Tier 2 unavailable" — fail closed when
+        # require_tier2, else warn once and continue Tier-1-only.
+        was_cold = not tier2.is_ready()
+        try:
+            tier2.warmup()
+        except Exception as e:
+            out.tier2_available = False
+            out.skip_reason = f"Tier 2 unavailable (model/runtime failed to load): {e}"
+            self._handle_tier2_unavailable(e)
+            return out
 
         fields_for_tier2 = (
             self._tier2_fields
@@ -836,7 +888,7 @@ class PromptDefense:
         t_infer_start = time.perf_counter()
         # Set now (before the failure early-return) so cold_load is a bool
         # whenever inference was attempted — success or failure (TS 0.7.4 parity).
-        out.cold_load = not tier2.is_ready()
+        out.cold_load = was_cold
         stats = BatchTokenStats()
         multihead_cfg = tier2.get_multihead_config()
         all_scores, all_pairs, infer_skip, unique_count = self._tier2_run_inference(

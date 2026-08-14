@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
@@ -185,6 +186,18 @@ class Tier2Classifier:
 
         try:
             main, aux = self._onnx.classify_pair(analysis_text)
+            # A non-finite score (NaN/Infinity) means the model produced no
+            # usable output. Report a SKIP, not score 0 -- score 0 yields
+            # confidence 1.0 (|0 - 0.5| * 2), making a broken inference look
+            # like a max-confidence benign classification.
+            if not math.isfinite(main):
+                return Tier2Result(
+                    score=0,
+                    confidence=0,
+                    skipped=True,
+                    skip_reason="Non-finite model output (NaN/Infinity)",
+                    latency_ms=_ms(start),
+                )
             confidence = abs(main - 0.5) * 2
             return Tier2Result(
                 score=main, confidence=confidence, skipped=False, latency_ms=_ms(start), aux=aux

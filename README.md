@@ -90,10 +90,12 @@ else:
 
 ### Tier 1 — Pattern detection (sync, ~1 ms)
 
-- **Unicode normalization** — homoglyph resistance (e.g. Cyrillic `а` → ASCII `a`)
-- **Role stripping** — `SYSTEM:`, `ASSISTANT:`, `<system>`, `[INST]`, etc.
-- **Pattern removal** — phrases like “ignore previous instructions”
-- **Encoding detection** — suspicious Base64/URL-shaped payloads
+Detects (never rewrites) injection signals and records them as evidence:
+
+- **Unicode normalization** (for matching only) — homoglyph resistance (e.g. Cyrillic `а` → ASCII `a`)
+- **Role markers** — `SYSTEM:`, `ASSISTANT:`, `<system>`, `[INST]`, etc.
+- **Instruction-override patterns** — phrases like “ignore previous instructions”
+- **Encoding detection** — decode-then-detect: a decoded payload is escalated only if it trips a real attack pattern
 - **Boundary annotation (opt-in)** — `[UD-{id}]…[/UD-{id}]` wrappers when `annotate_boundary=True` (npm: `annotateBoundary`). Use `generate_boundary_instructions` from the package root in prompts when you enable wrapping.
 
 ### Tier 2 — ML classification (ONNX)
@@ -107,7 +109,7 @@ Packed-chunk MiniLM classifier (int8 ONNX ~22 MB, bundled):
 ### Optional SFE preprocessor
 
 - `use_sfe=True` runs a field-level FastText pass to build a **classifier-only** view of the payload
-- **Tier 1** always sanitizes the **original** tool value; **`sanitized`** in `DefenseResult` is unchanged by SFE drops
+- **Tier 1** detects on the **original** tool value; **`sanitized`** in `DefenseResult` is the original content (unchanged by SFE drops)
 - **Tier 2** extracts strings from the SFE-filtered tree; `fields_dropped` lists paths omitted from that extraction (not removed from `sanitized`)
 - Fails open if the runtime/model is unavailable: payload continues unfiltered
 
@@ -126,7 +128,7 @@ Authoritative LLM-based classification for the cases Tier 2 finds ambiguous. The
 
 Two modes, selected via `defender_mode`:
 - **`"cascade"`** (default): Tier 1 → Tier 2 → Tier 3, with Tier 3 invoked only when the Tier 2 effective score falls in the gray band (default `[0.3, 0.85)`). The Tier 3 verdict overrides Tier 2 on the escalated chunk — a `block` forces a block, an `allow` rescues it. Outside the band defender skips the round trip.
-- **`"tier3_only"`**: skip Tier 2; the block/allow decision is the Tier 3 verdict alone. Tier 1 still sanitizes the returned `sanitized` payload.
+- **`"tier3_only"`**: skip Tier 2; the block/allow decision is the Tier 3 verdict alone. Tier 1 still runs detection; the returned `sanitized` payload is the original content.
 
 Register a provider once at startup, then opt in per instance:
 
@@ -163,8 +165,9 @@ defense = create_prompt_defense(
 
 ### `allowed` vs `risk_level`
 
+- **Detect-and-gate (v0.8.0):** defender **never rewrites or redacts** content. `sanitized` is the **original** payload (optionally `[UD-…]` boundary-wrapped); threats are reported as detection evidence and blocking is expressed via `allowed`. **Migration:** if you relied on `sanitized` being redacted, gate on `allowed` instead.
 - Use **`allowed`** for gating when `block_high_risk=True`: `False` means do not pass `sanitized` to the model as-is.
-- **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"medium"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
+- **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"low"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
 
 | Level | Typical trigger |
 |-------|------------------|
@@ -181,7 +184,7 @@ defense = create_prompt_defense(
     enable_tier1=True,
     enable_tier2=True,
     block_high_risk=False,
-    default_risk_level="medium",
+    default_risk_level="low",
     annotate_boundary=False,  # True: wrap risky strings with [UD-…] tags (npm: annotateBoundary)
     tier2_fields=["subject", "body", "snippet"],  # optional: scope Tier 2 to these JSON keys (default: all strings)
     use_sfe=True,  # optional: enable semantic field extractor preprocessing

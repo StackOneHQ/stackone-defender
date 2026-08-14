@@ -145,8 +145,10 @@ class OnnxClassifier:
                 import onnxruntime as ort
                 from tokenizers import Tokenizer
             except ImportError as e:
+                # No warning here -- the ImportError propagates to the caller,
+                # which owns user-facing messaging (PromptDefense warns once per
+                # instance). Warning here logged a line on every failed call.
                 self._load_failed = True
-                _logger.warning("[defender] ONNX model failed to load: %s", e)
                 raise ImportError(
                     "ONNX dependencies not installed. Install with: pip install stackone-defender[onnx]"
                 ) from e

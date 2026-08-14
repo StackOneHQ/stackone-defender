@@ -134,7 +134,7 @@ ENCODING_SUSPICIOUS_PATTERNS: list[PatternDefinition] = [
     PatternDefinition("html_entity_abuse", re.compile(r"(?:&#\d{2,4};){4,}|(?:&#x[0-9a-fA-F]{2,4};){4,}", re.I), "encoding_suspicious", "medium", "HTML entity encoding (potential obfuscation)"),
     PatternDefinition("rot13_mention", re.compile(r"rot13|caesar\s+cipher|decode\s+this", re.I), "encoding_suspicious", "medium", "Mention of ROT13 or similar encoding schemes"),
     PatternDefinition("binary_string_encoding", re.compile(r"\b[01]{8}(?:\s+[01]{8}){2,}\b"), "encoding_suspicious", "medium", "Binary-encoded string (potential obfuscation)"),
-    PatternDefinition("morse_code_encoding", re.compile(r"(?:[.-]+\s){4,}[.-]+"), "encoding_suspicious", "low", "Morse code pattern (potential obfuscation)"),
+    PatternDefinition("morse_code_encoding", re.compile(r"(?:[.-]{1,8}\s){4,}[.-]{1,8}"), "encoding_suspicious", "low", "Morse code pattern (potential obfuscation)"),
     PatternDefinition("leetspeak_injection", re.compile(r"1gn0r3|f0rg3t|byp4ss|syst3m|4dm1n|h4ck", re.I), "encoding_suspicious", "medium", "Leetspeak obfuscation of injection keywords"),
 ]
 
@@ -170,10 +170,14 @@ INDIRECT_INJECTION_PATTERNS: list[PatternDefinition] = [
     # ``[config](https://.../system-setup)`` triggered. Real smuggled-
     # instruction attacks include the full "ignore (all|the|previous|prior)"
     # phrasing in the URL/anchor.
+    # Negated, bounded char classes ([^\]] / [^)]) instead of ``.*?`` so the
+    # regex is linear -- the lazy-dot form could backtrack on long unclosed
+    # link/URL spans (ReDoS-prone).
     PatternDefinition(
         "markdown_hidden_instruction",
         re.compile(
-            r"\[.*?\]\(.*?(?:ignore|disregard|forget|override)\W+(?:all|the|previous|prior)\W+.*?\)",
+            r"\[[^\]\n]{0,200}\]\([^)\n]{0,300}(?:ignore|disregard|forget|override)\W{1,8}"
+            r"(?:all|the|previous|prior)\W{1,8}[^)\n]{0,300}\)",
             re.I,
         ),
         "structural",
