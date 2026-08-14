@@ -309,7 +309,10 @@ class PromptDefense:
 
     def warmup_tier2(self) -> None:
         if self._tier2:
-            self._tier2.warmup()
+            try:
+                self._tier2.warmup()
+            except Exception as e:
+                self._handle_tier2_unavailable(e)
         if self._sfe_enabled and self._sfe_custom_predictor is None:
             predictor = get_default_predictor()
             if predictor is None:

@@ -167,9 +167,10 @@ class ToolResultSanitizer:
             return value
         if isinstance(value, list):
             return self._sanitize_array(value, context, metadata, depth, detect)
-        # Only plain dicts are rebuilt/traversed. Non-dict objects (datetime, set,
-        # class instances) pass through unchanged.
-        if type(value) is dict:
+        # Any mapping (dict, OrderedDict, bson.SON, ...) is traversed so key
+        # stripping + detection still apply. Non-dict objects (datetime, set,
+        # class instances) are NOT dicts and pass through unchanged below.
+        if isinstance(value, dict):
             return self._sanitize_object(value, context, metadata, depth, detect)
         return value
 
