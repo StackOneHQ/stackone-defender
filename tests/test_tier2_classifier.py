@@ -236,19 +236,18 @@ class TestDecorativeOutputFalsePositive:
         r = c.classify(f"{self._ATTACK} " + " ".join(["the"] * 200))
         assert r.score > 0.5
 
-    # Security regression: fullwidth/homoglyph obfuscation collapses to repeated
-    # [UNK], which satisfies the share + distinct factors but is the signature of
-    # encoding evasion. Factor 3 (dominant != [UNK]) refuses to damp it, so it is
-    # NOT suppressed to 0. Asserts non-suppression only — the model's all-[UNK]
-    # score is off-distribution and unreliable; reliable detection of fullwidth
-    # needs Tier-1 unicode normalization, tracked separately.
-    def test_fullwidth_injection_not_damped(self):
+    # Detection regression: fullwidth obfuscation used to reach the tokenizer as
+    # repeated [UNK] and score off-distribution (~0.48). _normalize_for_classification
+    # now NFKC-folds unicode before tokenizing, so fullwidth tokenizes as real words
+    # and is DETECTED (~0.95), not merely non-suppressed. If the fold is removed,
+    # the score drops back below 0.5.
+    def test_detects_fullwidth_injection_after_folding(self):
         c = create_tier2_classifier()
         r = c.classify(self._FULLWIDTH)
         assert not r.skipped
-        assert r.score != 0.0
+        assert r.score > 0.5
 
-    def test_prefixed_fullwidth_injection_not_damped(self):
+    def test_detects_prefixed_fullwidth_injection_after_folding(self):
         c = create_tier2_classifier()
         r = c.classify(f"{_to_fullwidth('URGENT: ')}{self._FULLWIDTH}")
-        assert r.score != 0.0
+        assert r.score > 0.5

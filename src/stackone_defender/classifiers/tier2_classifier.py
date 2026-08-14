@@ -16,6 +16,7 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from ..sanitizers.normalizer import normalize_unicode
 from ..types import MultiheadConfig, RiskLevel, Tier2Result
 from ..utils.boundary import strip_boundary_patterns
 from .onnx_classifier import BatchTokenStats, OnnxClassifier, get_default_model_path
@@ -188,7 +189,10 @@ class Tier2Classifier:
     _DECORATIVE_RUN = re.compile(r"([^\w\s])\1{3,}")
 
     def _normalize_for_classification(self, text: str) -> str:
-        return self._DECORATIVE_RUN.sub(r"\1\1\1", strip_boundary_patterns(text))
+        # NFKC-fold unicode (fullwidth/math-styled -> ASCII) so obfuscated attacks
+        # tokenize as real words instead of [UNK]; then strip boundary markers and
+        # collapse decorative runs. Classifier input only — payload never mutated.
+        return self._DECORATIVE_RUN.sub(r"\1\1\1", strip_boundary_patterns(normalize_unicode(text)))
 
     def classify(self, text: str) -> Tier2Result:
         start = time.perf_counter()
