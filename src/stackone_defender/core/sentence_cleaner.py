@@ -26,6 +26,10 @@ def _clean_field(raw: str, tier2: Tier2Classifier, high_threshold: float) -> str
     # Every sentence flagged — drop them all rather than blocking the field wholesale.
     if not kept:
         return ""
+    # Nothing dropped — return the field verbatim, never a reconstruction (a
+    # rebuilt join can differ from the original and report a spurious change).
+    if len(kept) == len(sentences):
+        return raw
     # Strip role markers from survivors as defense-in-depth against a sub-threshold marker.
     return strip_role_markers(" ".join(kept)).strip()
 
