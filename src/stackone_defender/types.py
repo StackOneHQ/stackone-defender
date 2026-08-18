@@ -335,6 +335,9 @@ class DefenseResult:
     # The original tool result, never rewritten (optionally boundary-wrapped).
     original: Any
     detections: list[str]
+    # Fields whose content the cleaner actually changed in ``sanitized``. Empty
+    # under ``sanitize_content=False`` or without Tier 2. For where a threat was
+    # *detected*, read ``detections`` / ``patterns_by_field``.
     fields_sanitized: list[str]
     patterns_by_field: dict[str, list[str]]
     # Effective (post-density / post-rule) Tier 2 score that drove the decision.

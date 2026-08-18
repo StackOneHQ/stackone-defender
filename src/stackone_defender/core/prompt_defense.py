@@ -504,7 +504,7 @@ class PromptDefense:
     def _finalize_allowed_and_risk(
         *,
         detections: list[str],
-        fields_sanitized: list[str],
+        tier1_flagged: list[str],
         tier2_has_threat: bool,
         tier2_idx: int,
         tier1_idx: int,
@@ -522,7 +522,7 @@ class PromptDefense:
 
         has_threats = (
             bool(detections)
-            or bool(fields_sanitized)
+            or bool(tier1_flagged)
             or (tier2_has_threat and not tier3_overrode_to_allow)
             or tier3_overrode_to_block
         )
@@ -560,7 +560,7 @@ class PromptDefense:
                 skip_reason = f"Tier 3 provider error: {e}"
 
         sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
-        detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
+        detections, _tier1_flagged, prm = self._tier1_metadata(sanitized)
 
         blocked = verdict is not None and self._is_tier3_block(verdict)
         risk_level: RiskLevel = "high" if blocked else "low"
@@ -575,7 +575,7 @@ class PromptDefense:
             sanitized=sanitized.sanitized,
             original=sanitized.sanitized,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=[],
             patterns_by_field=prm,
             tier3=tier3_result,
             fields_dropped=[],
@@ -656,7 +656,7 @@ class PromptDefense:
 
         t_tier1_start = time.perf_counter()
         sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name, boundary=boundary)
-        detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
+        detections, tier1_flagged, prm = self._tier1_metadata(sanitized)
         tier1_ms = (time.perf_counter() - t_tier1_start) * 1000
 
         tier2 = (
@@ -683,7 +683,7 @@ class PromptDefense:
 
         risk_level, allowed = self._finalize_allowed_and_risk(
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            tier1_flagged=tier1_flagged,
             tier2_has_threat=tier2_has_threat,
             tier2_idx=tier2_idx,
             tier1_idx=tier1_idx,
@@ -694,6 +694,7 @@ class PromptDefense:
 
         # Return-both: original is the detect-only payload; sanitized is the
         # sentence-cleaned copy of its high-risk fields (unless sanitize_content is off).
+        # fields_sanitized reports the fields the cleaner actually changed.
         original = sanitized.sanitized
         if (
             self._sanitize_content
@@ -701,7 +702,7 @@ class PromptDefense:
             and risk_level in ("high", "critical")
             and tier2.high_risk_values
         ):
-            cleaned = clean_high_risk_content(
+            cleaned, cleaned_fields = clean_high_risk_content(
                 original,
                 tier2.high_risk_values,
                 self._tier2,
@@ -709,7 +710,7 @@ class PromptDefense:
                 boundary,
             )
         else:
-            cleaned = original
+            cleaned, cleaned_fields = original, []
 
         return DefenseResult(
             allowed=allowed,
@@ -717,7 +718,7 @@ class PromptDefense:
             sanitized=cleaned,
             original=original,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=cleaned_fields,
             patterns_by_field=prm,
             tier2_score=tier2.effective_score,
             tier2_raw_score=tier2.raw_score,
@@ -780,7 +781,7 @@ class PromptDefense:
         detections = list(dict.fromkeys(p for patterns in prm.values() for p in patterns))
 
         active_methods = {"role_stripping", "pattern_removal", "encoding_detection"}
-        fields_sanitized = [
+        tier1_flagged = [
             field for field, methods in mbf.items()
             if any(m in active_methods for m in methods)
         ]
@@ -824,7 +825,7 @@ class PromptDefense:
         # Tier 2 above-threshold (subject to multi-head veto).
         risk_level, allowed = self._finalize_allowed_and_risk(
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            tier1_flagged=tier1_flagged,
             tier2_has_threat=tier2_has_threat,
             tier2_idx=tier2_idx,
             tier1_idx=tier1_idx,
@@ -834,6 +835,7 @@ class PromptDefense:
         )
 
         # Return-both: original is detect-only; sanitized is the sentence-cleaned copy.
+        # fields_sanitized reports the fields the cleaner actually changed.
         original = sanitized.sanitized
         if (
             self._sanitize_content
@@ -841,7 +843,7 @@ class PromptDefense:
             and risk_level in ("high", "critical")
             and tier2.high_risk_values
         ):
-            cleaned = clean_high_risk_content(
+            cleaned, cleaned_fields = clean_high_risk_content(
                 original,
                 tier2.high_risk_values,
                 self._tier2,
@@ -849,7 +851,7 @@ class PromptDefense:
                 boundary,
             )
         else:
-            cleaned = original
+            cleaned, cleaned_fields = original, []
 
         return DefenseResult(
             allowed=allowed,
@@ -857,7 +859,7 @@ class PromptDefense:
             sanitized=cleaned,
             original=original,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=cleaned_fields,
             patterns_by_field=prm,
             tier2_score=tier2.effective_score,
             tier2_raw_score=tier2.raw_score,

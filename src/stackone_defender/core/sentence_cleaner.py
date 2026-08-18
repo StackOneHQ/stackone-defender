@@ -36,24 +36,30 @@ def clean_high_risk_content(
     tier2: Tier2Classifier,
     high_threshold: float,
     boundary: DataBoundary | None = None,
-) -> Any:
+) -> tuple[Any, list[str]]:
     """Clone ``content`` (already structurally protected, optionally boundary-wrapped)
     and replace only the leaf strings whose unwrapped value is in ``high_risk_values``
-    with a sentence-cleaned version."""
+    with a sentence-cleaned version. Returns ``(content, changed_fields)`` — the paths
+    whose content actually changed (a single-sentence field left as-is reports none).
+    Paths follow the sanitizer's convention: ``parent.key`` / ``parent[i]``."""
     if not high_risk_values:
-        return content
+        return content, []
 
-    def walk(value: Any) -> Any:
+    changed_fields: list[str] = []
+
+    def walk(value: Any, path: str) -> Any:
         if isinstance(value, str):
             raw = strip_boundary_patterns(value) if boundary else value
             if raw not in high_risk_values:
                 return value
             cleaned = _clean_field(raw, tier2, high_threshold)
+            if cleaned != raw:
+                changed_fields.append(path)
             return wrap_with_boundary(cleaned, boundary) if boundary else cleaned
         if isinstance(value, list):
-            return [walk(v) for v in value]
+            return [walk(v, f"{path}[{i}]") for i, v in enumerate(value)]
         if isinstance(value, dict):
-            return {k: walk(v) for k, v in value.items()}
+            return {k: walk(v, f"{path}.{k}" if path else k) for k, v in value.items()}
         return value
 
-    return walk(content)
+    return walk(content, ""), changed_fields
