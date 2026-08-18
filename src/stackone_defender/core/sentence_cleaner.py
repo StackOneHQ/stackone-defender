@@ -15,15 +15,17 @@ from ..types import DataBoundary
 from ..utils.boundary import strip_boundary_patterns, wrap_with_boundary
 
 
-def _clean_field(raw: str, tier2: Tier2Classifier, high_threshold: float, block_text: str) -> str:
+def _clean_field(raw: str, tier2: Tier2Classifier, high_threshold: float) -> str:
     sentences = _split_into_sentences(raw)
-    # A single-sentence field can't be partially cleaned — block the whole field.
+    # A single sentence can't be isolated to a bad part, and benign opaque tokens read
+    # as one sentence — leave it untouched; the verdict/``allowed`` still gates it.
     if len(sentences) <= 1:
-        return block_text
+        return raw
     scores = tier2.classify_chunks_batch(sentences)
     kept = [s for s, sc in zip(sentences, scores, strict=False) if sc < high_threshold]
+    # Every sentence flagged — drop them all rather than blocking the field wholesale.
     if not kept:
-        return block_text
+        return ""
     # Strip role markers from survivors as defense-in-depth against a sub-threshold marker.
     return strip_role_markers(" ".join(kept)).strip()
 
@@ -33,7 +35,6 @@ def clean_high_risk_content(
     high_risk_values: set[str],
     tier2: Tier2Classifier,
     high_threshold: float,
-    block_text: str,
     boundary: DataBoundary | None = None,
 ) -> Any:
     """Clone ``content`` (already structurally protected, optionally boundary-wrapped)
@@ -47,7 +48,7 @@ def clean_high_risk_content(
             raw = strip_boundary_patterns(value) if boundary else value
             if raw not in high_risk_values:
                 return value
-            cleaned = _clean_field(raw, tier2, high_threshold, block_text)
+            cleaned = _clean_field(raw, tier2, high_threshold)
             return wrap_with_boundary(cleaned, boundary) if boundary else cleaned
         if isinstance(value, list):
             return [walk(v) for v in value]

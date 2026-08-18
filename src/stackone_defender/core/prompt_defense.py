@@ -48,8 +48,6 @@ _tier2_unavailable_warned = False
 
 _DEFAULT_TIER3_BAND = Tier3EscalationBand(lower=0.3, upper=0.85)
 _DEFAULT_TIER3_MAX_TEXT_LENGTH = 10000
-# Replacement when a whole field is dropped (single-sentence or all sentences high).
-_CONTENT_BLOCKED_TEXT = "[CONTENT BLOCKED FOR SECURITY]"
 
 
 @dataclass
@@ -697,13 +695,17 @@ class PromptDefense:
         # Return-both: original is the detect-only payload; sanitized is the
         # sentence-cleaned copy of its high-risk fields (unless sanitize_content is off).
         original = sanitized.sanitized
-        if self._sanitize_content and self._tier2 is not None and tier2.high_risk_values:
+        if (
+            self._sanitize_content
+            and self._tier2 is not None
+            and risk_level in ("high", "critical")
+            and tier2.high_risk_values
+        ):
             cleaned = clean_high_risk_content(
                 original,
                 tier2.high_risk_values,
                 self._tier2,
                 self._config.tier2.high_risk_threshold,
-                _CONTENT_BLOCKED_TEXT,
                 boundary,
             )
         else:
@@ -833,13 +835,17 @@ class PromptDefense:
 
         # Return-both: original is detect-only; sanitized is the sentence-cleaned copy.
         original = sanitized.sanitized
-        if self._sanitize_content and self._tier2 is not None and tier2.high_risk_values:
+        if (
+            self._sanitize_content
+            and self._tier2 is not None
+            and risk_level in ("high", "critical")
+            and tier2.high_risk_values
+        ):
             cleaned = clean_high_risk_content(
                 original,
                 tier2.high_risk_values,
                 self._tier2,
                 self._config.tier2.high_risk_threshold,
-                _CONTENT_BLOCKED_TEXT,
                 boundary,
             )
         else:
