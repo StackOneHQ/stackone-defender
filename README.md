@@ -165,7 +165,7 @@ defense = create_prompt_defense(
 
 ### `allowed` vs `risk_level`
 
-- **Detect-and-gate (v0.8.0):** defender **never rewrites or redacts** content. `sanitized` is the **original** payload (optionally `[UD-…]` boundary-wrapped); threats are reported as detection evidence and blocking is expressed via `allowed`. **Migration:** if you relied on `sanitized` being redacted, gate on `allowed` instead.
+- **Return-both (v0.8.0):** `DefenseResult.sanitized` is a **sentence-level cleaned** copy (high-scoring sentences dropped within high-risk fields), and `DefenseResult.original` is the untouched payload (optionally `[UD-…]` boundary-wrapped). Cleaning is best-effort (capped by detection) — still gate on `allowed`. Set `sanitize_content=False` for pure detect-and-gate: `sanitized` then equals `original`.
 - Use **`allowed`** for gating when `block_high_risk=True`: `False` means do not pass `sanitized` to the model as-is.
 - **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"low"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
 

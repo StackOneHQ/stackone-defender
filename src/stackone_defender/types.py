@@ -328,7 +328,12 @@ class DefenseResult:
 
     allowed: bool
     risk_level: RiskLevel
+    # By default (``sanitize_content=True``) a sentence-level cleaned copy: high-scoring
+    # sentences dropped within high-risk fields, boundary-wrapped when ``annotate_boundary``.
+    # Best-effort — still gate on ``allowed``. Equals ``original`` when ``sanitize_content=False``.
     sanitized: Any
+    # The original tool result, never rewritten (optionally boundary-wrapped).
+    original: Any
     detections: list[str]
     fields_sanitized: list[str]
     patterns_by_field: dict[str, list[str]]

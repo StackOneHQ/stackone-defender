@@ -36,6 +36,8 @@ from ..types import (
     Tier3TokenUsage,
     Tier3Verdict,
 )
+from ..utils.boundary import generate_data_boundary
+from .sentence_cleaner import clean_high_risk_content
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 _logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ _tier2_unavailable_warned = False
 
 _DEFAULT_TIER3_BAND = Tier3EscalationBand(lower=0.3, upper=0.85)
 _DEFAULT_TIER3_MAX_TEXT_LENGTH = 10000
+# Replacement when a whole field is dropped (single-sentence or all sentences high).
+_CONTENT_BLOCKED_TEXT = "[CONTENT BLOCKED FOR SECURITY]"
 
 
 @dataclass
@@ -91,6 +95,8 @@ class _Tier2Outcome:
     cold_load: bool | None = None
     # False when Tier 2 was enabled but the model/runtime failed to load.
     tier2_available: bool | None = None
+    # Leaf string values that scored high — the fields the cleaner rewrites.
+    high_risk_values: set[str] = field(default_factory=set)
 
 
 def _extract_strings(
@@ -191,6 +197,7 @@ class PromptDefense:
         block_high_risk: bool = False,
         default_risk_level: RiskLevel = "low",
         annotate_boundary: bool = False,
+        sanitize_content: bool = True,
         require_tier2: bool = False,
         enable_tier3: bool = False,
         defender_mode: DefenderMode = "cascade",
@@ -222,6 +229,8 @@ class PromptDefense:
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
             annotate_boundary=annotate_boundary,
         )
+        self._sanitize_content = sanitize_content
+        self._annotate_boundary = annotate_boundary
 
         self._pattern_detector: PatternDetector = create_pattern_detector()
         self._tier2: Tier2Classifier | None = None
@@ -566,6 +575,7 @@ class PromptDefense:
             allowed=allowed,
             risk_level=risk_level,
             sanitized=sanitized.sanitized,
+            original=sanitized.sanitized,
             detections=detections,
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
@@ -642,8 +652,12 @@ class PromptDefense:
                     e,
                 )
 
+        # Own the boundary here so the sentence-cleaner can wrap its cleaned fields
+        # with the same markers the sanitizer used.
+        boundary = generate_data_boundary() if self._annotate_boundary else None
+
         t_tier1_start = time.perf_counter()
-        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
+        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name, boundary=boundary)
         detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
         tier1_ms = (time.perf_counter() - t_tier1_start) * 1000
 
@@ -680,10 +694,26 @@ class PromptDefense:
             tier3_override_block=tier3_override_block,
         )
 
+        # Return-both: original is the detect-only payload; sanitized is the
+        # sentence-cleaned copy of its high-risk fields (unless sanitize_content is off).
+        original = sanitized.sanitized
+        if self._sanitize_content and self._tier2 is not None and tier2.high_risk_values:
+            cleaned = clean_high_risk_content(
+                original,
+                tier2.high_risk_values,
+                self._tier2,
+                self._config.tier2.high_risk_threshold,
+                _CONTENT_BLOCKED_TEXT,
+                boundary,
+            )
+        else:
+            cleaned = original
+
         return DefenseResult(
             allowed=allowed,
             risk_level=risk_level,
-            sanitized=sanitized.sanitized,
+            sanitized=cleaned,
+            original=original,
             detections=detections,
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
@@ -735,9 +765,12 @@ class PromptDefense:
                     e,
                 )
 
+        # Own the boundary so the sentence-cleaner wraps cleaned fields the same way.
+        boundary = generate_data_boundary() if self._annotate_boundary else None
+
         # Tier 1: pattern-based sanitization on the original payload (matches TS 0.6.3).
         t_tier1_start = time.perf_counter()
-        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
+        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name, boundary=boundary)
 
         # Collect Tier 1 metadata
         prm = sanitized.metadata.patterns_removed_by_field
@@ -798,10 +831,25 @@ class PromptDefense:
             tier3_override_block=None,
         )
 
+        # Return-both: original is detect-only; sanitized is the sentence-cleaned copy.
+        original = sanitized.sanitized
+        if self._sanitize_content and self._tier2 is not None and tier2.high_risk_values:
+            cleaned = clean_high_risk_content(
+                original,
+                tier2.high_risk_values,
+                self._tier2,
+                self._config.tier2.high_risk_threshold,
+                _CONTENT_BLOCKED_TEXT,
+                boundary,
+            )
+        else:
+            cleaned = original
+
         return DefenseResult(
             allowed=allowed,
             risk_level=risk_level,
-            sanitized=sanitized.sanitized,
+            sanitized=cleaned,
+            original=original,
             detections=detections,
             fields_sanitized=fields_sanitized,
             patterns_by_field=prm,
@@ -910,6 +958,16 @@ class PromptDefense:
         out.raw_score = agg.max_main
         out.max_sentence = agg.max_main_sentence
         self._tier2_finalize(tier2, out, agg, multihead_cfg)
+
+        # Collect the leaf values that scored high (per-string scores align with
+        # non-skipped strings, in string_ranges order) for the sentence-cleaner.
+        high_threshold = self._config.tier2.high_risk_threshold
+        scores_iter = iter(agg.per_string_scores)
+        for i, (start, _end) in enumerate(string_ranges):
+            if start < 0:
+                continue
+            if next(scores_iter, 0.0) >= high_threshold:
+                out.high_risk_values.add(strings[i])
 
         now = time.perf_counter()
         out.phase_timings = PhaseTimings(
