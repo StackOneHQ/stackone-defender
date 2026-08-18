@@ -109,7 +109,7 @@ Packed-chunk MiniLM classifier (int8 ONNX ~22 MB, bundled):
 ### Optional SFE preprocessor
 
 - `use_sfe=True` runs a field-level FastText pass to build a **classifier-only** view of the payload
-- **Tier 1** detects on the **original** tool value; **`sanitized`** in `DefenseResult` is the original content (unchanged by SFE drops)
+- **Tier 1** detects on the **original** tool value; SFE drops are classifier-only and never remove fields from the returned `sanitized` / `original` payloads
 - **Tier 2** extracts strings from the SFE-filtered tree; `fields_dropped` lists paths omitted from that extraction (not removed from `sanitized`)
 - Fails open if the runtime/model is unavailable: payload continues unfiltered
 
@@ -209,9 +209,10 @@ from dataclasses import dataclass, field
 class DefenseResult:
     allowed: bool                             # gating decision (respects block_high_risk)
     risk_level: RiskLevel                     # diagnostic; max of Tier 1 / Tier 2
-    sanitized: Any                            # ORIGINAL content (never redacted); optionally [UD-…]-wrapped
+    sanitized: Any                            # sentence-cleaned copy (== original when sanitize_content=False); best-effort, still gate on allowed
+    original: Any                             # the untouched content, optionally [UD-…]-wrapped; never rewritten
     detections: list[str]                     # Tier 1 pattern names detected
-    fields_sanitized: list[str]               # fields where a threat was DETECTED (not modified)
+    fields_sanitized: list[str]               # fields whose content the cleaner changed in sanitized (empty when sanitize_content=False or no Tier 2); for detections read detections/patterns_by_field
     patterns_by_field: dict[str, list[str]]   # patterns detected per field
     tier2_score: float | None = None
     tier2_raw_score: float | None = None
@@ -245,7 +246,7 @@ results = defense.defend_tool_results([
 ])
 for r in results:
     if not r.allowed:
-        print("Blocked:", ", ".join(r.fields_sanitized))
+        print("Blocked:", ", ".join(r.detections))
 ```
 
 ### `await defense.defend_tool_results_async(items)`
