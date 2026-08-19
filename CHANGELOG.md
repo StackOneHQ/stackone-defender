@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.8.2](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.4...stackone-defender-v0.8.2) (2026-08-19)
+
+
+### Features
+
+* **ENG-1084:** detect-and-gate + sentence-level cleaning — Tier 1 detects without mutating content (gate on `allowed`); `sanitized` is a sentence-cleaned copy of high/critical fields ([60b01d0](https://github.com/StackOneHQ/defender-py/commit/60b01d0117c04106a3017dc4bf536cce6cc7a6c4))
+* **ENG-1084:** mark dropped runs with `[CONTENT SANITISED]` in the cleaned copy ([fdcdb94](https://github.com/StackOneHQ/defender-py/commit/fdcdb94e27698ac71a8dd8933d54ad47455be376))
+* **ENG-1084:** `detected_field_count` threat-count signal; object-key scanning; Tier 2 availability (`require_tier2` / `tier2_available`) ([6f1b52a](https://github.com/StackOneHQ/defender-py/commit/6f1b52afd9d2932aab9462776c102d05e5bd9626))
+* **ENG-1084:** NFKC-fold unicode before Tier 2 classification ([50741ee](https://github.com/StackOneHQ/defender-py/commit/50741eeb7c9d7e435a2a504d2f83c3bd9b2b8c04))
+
+
+### Bug Fixes
+
+* **ENG-1084:** return large arrays in full — 0.7.4 truncated arrays >1000 items to 100 + a sentinel, dropping the rest; Tier 1 detection is now bounded by the `max_size` budget (flagged via `coverage_degraded`), never drops data ([26c7eec](https://github.com/StackOneHQ/defender-py/commit/26c7eecb10f55be0a9e7cb614a67629fa485d199))
+* **ENG-1084:** scan strings inside risky array fields (`{"name": [INJ]}`) ([6f1b52a](https://github.com/StackOneHQ/defender-py/commit/6f1b52afd9d2932aab9462776c102d05e5bd9626))
+* **ENG-1084:** evidence-driven encoding escalation; token-degeneracy (OOD) guard; decorative-run normalization ([f450992](https://github.com/StackOneHQ/defender-py/commit/f45099241e36ee4210daaf39f2573c2a88d3071b))
+* **ENG-1084:** gate sentence-cleaning on aggregate risk; verbatim when nothing is dropped ([9e25335](https://github.com/StackOneHQ/defender-py/commit/9e2533576f90574f8bab5476728d79c5275b9060))
+* **ENG-1084:** count objects/arrays once in size metrics + iterate `obj.items()` directly ([26c7eec](https://github.com/StackOneHQ/defender-py/commit/26c7eecb10f55be0a9e7cb614a67629fa485d199))
+* **ENG-1084:** warmup fail-open + dict-subclass stripping ([f49ffcf](https://github.com/StackOneHQ/defender-py/commit/f49ffcf6e93e322623447d217994cc8215e02410))
+
 ## [0.7.4](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.3...stackone-defender-v0.7.4) (2026-08-13)
 
 
