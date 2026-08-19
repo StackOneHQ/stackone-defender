@@ -209,11 +209,12 @@ from dataclasses import dataclass, field
 class DefenseResult:
     allowed: bool                             # gating decision (respects block_high_risk)
     risk_level: RiskLevel                     # diagnostic; max of Tier 1 / Tier 2
-    sanitized: Any                            # sentence-cleaned copy (== original when sanitize_content=False); best-effort, still gate on allowed
+    sanitized: Any                            # sentence-cleaned copy (== original when sanitize_content=False); dropped runs leave a [CONTENT SANITISED] marker; best-effort, still gate on allowed
     original: Any                             # the untouched content, optionally [UD-…]-wrapped; never rewritten
     detections: list[str]                     # Tier 1 pattern names detected
     fields_sanitized: list[str]               # fields whose content the cleaner changed in sanitized (empty when sanitize_content=False or no Tier 2); for detections read detections/patterns_by_field
     patterns_by_field: dict[str, list[str]]   # patterns detected per field
+    detected_field_count: int                 # count of fields with a Tier-1 detection (keys of patterns_by_field); threat-count signal (fields_sanitized len no longer tracks this)
     tier2_score: float | None = None
     tier2_raw_score: float | None = None
     tier2_aux_score: float | None = None      # multi-head models only
@@ -291,7 +292,7 @@ sanitized = run_tool_and_defend(gmail_api.get_message(msg_id), "gmail_get_messag
 
 ## Risky field detection
 
-Only **string** values under configured “risky” keys are scanned and sanitized. [`RiskyFieldConfig`](https://github.com/StackOneHQ/stackone-defender/blob/main/src/stackone_defender/types.py) provides global names/patterns plus **`tool_overrides`** (wildcard tool names → field list), same idea as the npm package.
+Only **string** values under configured “risky” keys are Tier-1-scanned — including strings nested inside arrays/objects under those keys (e.g. `{"name": ["…"]}`). [`RiskyFieldConfig`](https://github.com/StackOneHQ/stackone-defender/blob/main/src/stackone_defender/types.py) provides global names/patterns plus **`tool_overrides`** (wildcard tool names → field list), same idea as the npm package. (Tier 2 scans all extracted strings regardless.)
 
 | Tool pattern | Scanned fields |
 |--------------|----------------|
