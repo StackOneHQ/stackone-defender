@@ -1,4 +1,4 @@
-"""Sentence-level cleaning for the return-both ``sanitized`` copy.
+"""Sentence-level cleaning for the ``sanitized`` copy.
 
 Within a high-risk field, replace each contiguous run of high-scoring sentences
 with a marker and keep the rest, so a mid-content cut stays visible to consumers

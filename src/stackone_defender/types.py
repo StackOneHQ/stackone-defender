@@ -333,10 +333,8 @@ class DefenseResult:
     risk_level: RiskLevel
     # By default (``sanitize_content=True``) a sentence-level cleaned copy: high-scoring
     # sentences dropped within high-risk fields, boundary-wrapped when ``annotate_boundary``.
-    # Best-effort — still gate on ``allowed``. Equals ``original`` when ``sanitize_content=False``.
+    # Best-effort — still gate on ``allowed``. The input verbatim when ``sanitize_content=False``.
     sanitized: Any
-    # The original tool result, never rewritten (optionally boundary-wrapped).
-    original: Any
     detections: list[str]
     # Fields whose content the cleaner actually changed in ``sanitized``. Empty
     # under ``sanitize_content=False`` or without Tier 2. For where a threat was

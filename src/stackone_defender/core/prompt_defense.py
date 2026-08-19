@@ -573,7 +573,6 @@ class PromptDefense:
             allowed=allowed,
             risk_level=risk_level,
             sanitized=sanitized.sanitized,
-            original=sanitized.sanitized,
             detections=detections,
             fields_sanitized=[],
             patterns_by_field=prm,
@@ -693,9 +692,9 @@ class PromptDefense:
             tier3_override_block=tier3_override_block,
         )
 
-        # Return-both: original is the detect-only payload; sanitized is the
-        # sentence-cleaned copy of its high-risk fields (unless sanitize_content is off).
-        # fields_sanitized reports the fields the cleaner actually changed.
+        # sanitized is a sentence-cleaned copy of the detect-only payload's high-risk
+        # fields (unless sanitize_content is off). fields_sanitized reports the fields
+        # the cleaner actually changed.
         original = sanitized.sanitized
         if (
             self._sanitize_content
@@ -717,7 +716,6 @@ class PromptDefense:
             allowed=allowed,
             risk_level=risk_level,
             sanitized=cleaned,
-            original=original,
             detections=detections,
             fields_sanitized=cleaned_fields,
             patterns_by_field=prm,
@@ -836,7 +834,7 @@ class PromptDefense:
             tier3_override_block=None,
         )
 
-        # Return-both: original is detect-only; sanitized is the sentence-cleaned copy.
+        # sanitized is the sentence-cleaned copy of the detect-only payload.
         # fields_sanitized reports the fields the cleaner actually changed.
         original = sanitized.sanitized
         if (
@@ -859,7 +857,6 @@ class PromptDefense:
             allowed=allowed,
             risk_level=risk_level,
             sanitized=cleaned,
-            original=original,
             detections=detections,
             fields_sanitized=cleaned_fields,
             patterns_by_field=prm,

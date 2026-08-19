@@ -109,7 +109,7 @@ Packed-chunk MiniLM classifier (int8 ONNX ~22 MB, bundled):
 ### Optional SFE preprocessor
 
 - `use_sfe=True` runs a field-level FastText pass to build a **classifier-only** view of the payload
-- **Tier 1** detects on the **original** tool value; SFE drops are classifier-only and never remove fields from the returned `sanitized` / `original` payloads
+- **Tier 1** detects on the raw tool value; SFE drops are classifier-only and never remove fields from the returned `sanitized` payload
 - **Tier 2** extracts strings from the SFE-filtered tree; `fields_dropped` lists paths omitted from that extraction (not removed from `sanitized`)
 - Fails open if the runtime/model is unavailable: payload continues unfiltered
 
@@ -165,7 +165,7 @@ defense = create_prompt_defense(
 
 ### `allowed` vs `risk_level`
 
-- **Return-both:** `DefenseResult.sanitized` is a **sentence-level cleaned** copy (high-scoring sentences dropped within high-risk fields), and `DefenseResult.original` is the untouched payload (optionally `[UD-…]` boundary-wrapped). Cleaning is best-effort (capped by detection) — still gate on `allowed`. Set `sanitize_content=False` for pure detect-and-gate: `sanitized` then equals `original`.
+- **`DefenseResult.sanitized`** is a **sentence-level cleaned** copy of the tool result (high-scoring sentences dropped within high-risk fields, optionally `[UD-…]` boundary-wrapped). Cleaning is best-effort (capped by detection) — still gate on `allowed`. Set `sanitize_content=False` for pure detect-and-gate: `sanitized` is then the input verbatim.
 - Use **`allowed`** for gating when `block_high_risk=True`: `False` means do not pass `sanitized` to the model as-is.
 - **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"low"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
 
@@ -209,8 +209,7 @@ from dataclasses import dataclass, field
 class DefenseResult:
     allowed: bool                             # gating decision (respects block_high_risk)
     risk_level: RiskLevel                     # diagnostic; max of Tier 1 / Tier 2
-    sanitized: Any                            # sentence-cleaned copy (== original when sanitize_content=False); dropped runs leave a [CONTENT SANITISED] marker; best-effort, still gate on allowed
-    original: Any                             # the untouched content, optionally [UD-…]-wrapped; never rewritten
+    sanitized: Any                            # sentence-cleaned copy (input verbatim when sanitize_content=False); dropped runs leave a [CONTENT SANITISED] marker; best-effort, still gate on allowed
     detections: list[str]                     # Tier 1 pattern names detected
     fields_sanitized: list[str]               # fields whose content the cleaner changed in sanitized (empty when sanitize_content=False or no Tier 2); for detections read detections/patterns_by_field
     patterns_by_field: dict[str, list[str]]   # patterns detected per field
