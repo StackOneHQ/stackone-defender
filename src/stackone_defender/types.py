@@ -340,6 +340,9 @@ class DefenseResult:
     # *detected*, read ``detections`` / ``patterns_by_field``.
     fields_sanitized: list[str]
     patterns_by_field: dict[str, list[str]]
+    # Count of fields with a Tier-1 pattern detection (keys of ``patterns_by_field``).
+    # The threat-count signal to key observability on — ``fields_sanitized`` no longer tracks it.
+    detected_field_count: int
     # Effective (post-density / post-rule) Tier 2 score that drove the decision.
     # Under multi-head aux veto this is explicitly ``0.0`` (not ``None``) so the
     # operator triple ``(tier2_score, risk_level, allowed)`` reads coherently.

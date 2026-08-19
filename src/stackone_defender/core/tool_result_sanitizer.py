@@ -160,6 +160,13 @@ class ToolResultSanitizer:
         depth: int,
         detect: bool = True,
     ) -> Any:
+        # Strings inside arrays/nesting reach here (object fields go via _sanitize_object).
+        # Scan risky ones so {"name": [INJ]} is covered like {"name": INJ}.
+        if isinstance(value, str):
+            if self._is_field_risky(context.field_name, context.tool_name):
+                return self._sanitize_string_field(value, context, metadata, detect)
+            update_size_metrics(metadata.size_metrics, value)
+            return value
         update_size_metrics(metadata.size_metrics, value)
         if not should_continue_traversal(metadata.size_metrics, depth, self._traversal.max_size, self._traversal.max_depth):
             return value
