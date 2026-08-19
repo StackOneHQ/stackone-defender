@@ -9,12 +9,14 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import time
 from dataclasses import dataclass
 from typing import Any
 
+from ..sanitizers.normalizer import normalize_unicode
 from ..types import MultiheadConfig, RiskLevel, Tier2Result
 from ..utils.boundary import strip_boundary_patterns
 from .onnx_classifier import BatchTokenStats, OnnxClassifier, get_default_model_path
@@ -26,6 +28,14 @@ DEFAULT_TIER2_CLASSIFIER_CONFIG: dict[str, Any] = {
     "medium_risk_threshold": 0.5,
     "min_text_length": 10,
     "max_text_length": 10000,
+    # Token-degeneracy (OOD) guard threshold. A chunk is dropped from Tier 2
+    # scoring (its mean-pooled score is arbitrary off-distribution) only when its
+    # most-frequent content token covers >= this share AND it uses few distinct
+    # tokens AND the dominant token is not [UNK] — repeated rule/box chars,
+    # base64/hex. The distinct-token floor keeps the share test from being padded
+    # around; the [UNK] exclusion keeps homoglyph/OOV rows from being suppressed.
+    # Tier 1 still catches literal and (via decode) encoded attacks. > 1 disables.
+    "degeneracy_max_token_share": 2 / 3,
 }
 
 
@@ -150,8 +160,11 @@ class Tier2Classifier:
         self._model_path: str = merged["onnx_model_path"]
         self._temperature_t: float | None = merged.get("temperature_t")
         self._multihead: MultiheadConfig | None = merged.get("multihead")
+        self._degeneracy_max_token_share: float = float(merged["degeneracy_max_token_share"])
 
-        self._onnx = OnnxClassifier(self._model_path, self._temperature_t)
+        self._onnx = OnnxClassifier(
+            self._model_path, self._temperature_t, self._degeneracy_max_token_share
+        )
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -167,11 +180,25 @@ class Tier2Classifier:
     # Single-text classify
     # ------------------------------------------------------------------
 
+    # Collapse 4+ repeats of the same non-word char down to 3. Decorative runs
+    # (box-drawing ``─``, ``===``, ``---``, ``###``) tokenize one-token-per-char,
+    # so a rule line becomes ~85% one repeated token; under mean pooling the
+    # pooled vector lands off-distribution and the head returns an arbitrary
+    # (often high) score. Classifier input only — the returned payload is never
+    # modified. (\\w is Unicode-aware in Python, so accented letters are kept.)
+    _DECORATIVE_RUN = re.compile(r"([^\w\s])\1{3,}")
+
+    def _normalize_for_classification(self, text: str) -> str:
+        # NFKC-fold unicode (fullwidth/math-styled -> ASCII) so obfuscated attacks
+        # tokenize as real words instead of [UNK]; then strip boundary markers and
+        # collapse decorative runs. Classifier input only — payload never mutated.
+        return self._DECORATIVE_RUN.sub(r"\1\1\1", strip_boundary_patterns(normalize_unicode(text)))
+
     def classify(self, text: str) -> Tier2Result:
         start = time.perf_counter()
         # Strip defender's own boundary markers before tokenization so nested
         # tool-call chains and spoofed boundary patterns don't corrupt scores.
-        text = strip_boundary_patterns(text)
+        text = self._normalize_for_classification(text)
         if len(text) < self._min_text_length:
             return Tier2Result(
                 score=0,
@@ -185,6 +212,18 @@ class Tier2Classifier:
 
         try:
             main, aux = self._onnx.classify_pair(analysis_text)
+            # A non-finite score (NaN/Infinity) means the model produced no
+            # usable output. Report a SKIP, not score 0 -- score 0 yields
+            # confidence 1.0 (|0 - 0.5| * 2), making a broken inference look
+            # like a max-confidence benign classification.
+            if not math.isfinite(main):
+                return Tier2Result(
+                    score=0,
+                    confidence=0,
+                    skipped=True,
+                    skip_reason="Non-finite model output (NaN/Infinity)",
+                    latency_ms=_ms(start),
+                )
             confidence = abs(main - 0.5) * 2
             return Tier2Result(
                 score=main, confidence=confidence, skipped=False, latency_ms=_ms(start), aux=aux
@@ -208,7 +247,7 @@ class Tier2Classifier:
     def classify_by_sentence(self, text: str) -> dict[str, Any]:
         """Classify text by sentence and return max main score."""
         start = time.perf_counter()
-        text = strip_boundary_patterns(text)
+        text = self._normalize_for_classification(text)
         sentences = _split_into_sentences(text)
         if not sentences:
             return _skipped(start, "No sentences found")
@@ -252,7 +291,7 @@ class Tier2Classifier:
 
     def classify_by_chunks(self, text: str) -> dict[str, Any]:
         start = time.perf_counter()
-        text = strip_boundary_patterns(text)
+        text = self._normalize_for_classification(text)
         if len(text) < self._min_text_length:
             return _skipped(start, "Text below minTextLength")
 
@@ -316,7 +355,7 @@ class Tier2Classifier:
         }
 
     def prepare_chunks(self, text: str) -> dict[str, Any]:
-        text = strip_boundary_patterns(text)
+        text = self._normalize_for_classification(text)
         if len(text) < self._min_text_length:
             return {"chunks": [], "skipped": True, "skip_reason": "Text below minTextLength"}
 
@@ -418,6 +457,7 @@ class Tier2Classifier:
             "onnx_model_path": self._model_path,
             "temperature_t": self.get_temperature(),
             "multihead": self._multihead,
+            "degeneracy_max_token_share": self._degeneracy_max_token_share,
         }
 
     def get_risk_level(self, score: float) -> RiskLevel:

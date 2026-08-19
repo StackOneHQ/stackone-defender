@@ -208,10 +208,14 @@ class SizeMetrics:
 
 @dataclass
 class SanitizationMetadata:
+    # Detect-and-gate: these record DETECTION evidence — content is never modified.
+    # Fields where Tier 1 detected a threat.
     fields_sanitized: list[str] = field(default_factory=list)
+    # Detection methods that fired per field (labels, not applied transforms).
     methods_by_field: dict[str, list[SanitizationMethod]] = field(default_factory=dict)
+    # Patterns detected per field (detected, not removed — content is preserved).
     patterns_removed_by_field: dict[str, list[str]] = field(default_factory=dict)
-    overall_risk_level: RiskLevel = "medium"
+    overall_risk_level: RiskLevel = "low"
     cumulative_risk_escalated: bool = False
     total_latency_ms: float = 0.0
     size_metrics: SizeMetrics = field(default_factory=SizeMetrics)
@@ -219,6 +223,10 @@ class SanitizationMetadata:
     risky_field_names: list[str] = field(default_factory=list)
     # Paths of keys removed due to prototype-pollution risk.
     dangerous_keys_removed: list[str] = field(default_factory=list)
+    # True when Tier 1 detection coverage was capped (a field over
+    # max_field_analysis_length, or a wide array/object only partially scanned).
+    # Content is always returned in full — only detection coverage was reduced.
+    analysis_truncated: bool = False
 
 
 @dataclass
@@ -246,9 +254,12 @@ class RiskyFieldConfig:
 @dataclass
 class TraversalConfig:
     max_depth: int = 10
-    max_size: int = 10 * 1024 * 1024  # 10MB
+    max_size: int = 10 * 1024 * 1024  # 10MB — also the call-scoped Tier 1 detection budget
+    # Deprecated: superseded by the call-scoped ``max_size`` detection budget. When
+    # ``skip_large_arrays`` is enabled, containers larger than this cap Tier 1
+    # detection at the first 100 entries. Off by default; kept for compatibility.
     large_array_threshold: int = 1000
-    skip_large_arrays: bool = True
+    skip_large_arrays: bool = False
 
 
 @dataclass
@@ -320,10 +331,19 @@ class DefenseResult:
 
     allowed: bool
     risk_level: RiskLevel
+    # By default (``sanitize_content=True``) a sentence-level cleaned copy: high-scoring
+    # sentences dropped within high-risk fields, boundary-wrapped when ``annotate_boundary``.
+    # Best-effort — still gate on ``allowed``. The input verbatim when ``sanitize_content=False``.
     sanitized: Any
     detections: list[str]
+    # Fields whose content the cleaner actually changed in ``sanitized``. Empty
+    # under ``sanitize_content=False`` or without Tier 2. For where a threat was
+    # *detected*, read ``detections`` / ``patterns_by_field``.
     fields_sanitized: list[str]
     patterns_by_field: dict[str, list[str]]
+    # Count of fields with a Tier-1 pattern detection (keys of ``patterns_by_field``).
+    # The threat-count signal to key observability on — ``fields_sanitized`` no longer tracks it.
+    detected_field_count: int
     # Effective (post-density / post-rule) Tier 2 score that drove the decision.
     # Under multi-head aux veto this is explicitly ``0.0`` (not ``None``) so the
     # operator triple ``(tier2_score, risk_level, allowed)`` reads coherently.
@@ -355,3 +375,11 @@ class DefenseResult:
     tier2_stats: Tier2Stats | None = None
     tier1_ms: float | None = None  # Tier 1 pattern-scan time (ms)
     cold_load: bool | None = None  # True when this call loaded the ONNX model
+    # False when Tier 2 was enabled but the model/runtime failed to load (silently
+    # degraded to Tier 1 only). Omitted (None) when Tier 2 loaded fine or is disabled.
+    tier2_available: bool | None = None
+    # True when Tier 1 detection coverage was reduced on this call — the call-scoped
+    # max_size detection budget or a depth limit was hit, or a field exceeded the
+    # analysis cap. Content is still returned in full and Tier 2 (when enabled) still
+    # scanned every string. None (not False) when coverage was complete — branch on `is True`.
+    coverage_degraded: bool | None = None

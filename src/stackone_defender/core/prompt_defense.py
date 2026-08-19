@@ -36,9 +36,15 @@ from ..types import (
     Tier3TokenUsage,
     Tier3Verdict,
 )
+from ..utils.boundary import generate_data_boundary
+from .sentence_cleaner import clean_high_risk_content
 from .tool_result_sanitizer import ToolResultSanitizer, create_tool_result_sanitizer
 
 _logger = logging.getLogger(__name__)
+
+# Module-scoped (not per-instance): PromptDefense is constructed per-request in
+# some hosts, so an instance flag would warn at full request volume.
+_tier2_unavailable_warned = False
 
 _DEFAULT_TIER3_BAND = Tier3EscalationBand(lower=0.3, upper=0.85)
 _DEFAULT_TIER3_MAX_TEXT_LENGTH = 10000
@@ -85,6 +91,10 @@ class _Tier2Outcome:
     phase_timings: PhaseTimings | None = None
     tier2_stats: Tier2Stats | None = None
     cold_load: bool | None = None
+    # False when Tier 2 was enabled but the model/runtime failed to load.
+    tier2_available: bool | None = None
+    # Leaf string values that scored high — the fields the cleaner rewrites.
+    high_risk_values: set[str] = field(default_factory=set)
 
 
 def _extract_strings(
@@ -183,8 +193,10 @@ class PromptDefense:
         tier2_fields: list[str] | None = None,
         use_sfe: bool | dict[str, Any] = False,
         block_high_risk: bool = False,
-        default_risk_level: RiskLevel = "medium",
+        default_risk_level: RiskLevel = "low",
         annotate_boundary: bool = False,
+        sanitize_content: bool = True,
+        require_tier2: bool = False,
         enable_tier3: bool = False,
         defender_mode: DefenderMode = "cascade",
         tier3: dict[str, Any] | None = None,
@@ -192,6 +204,7 @@ class PromptDefense:
         self._config: PromptDefenseConfig = create_config(config)
         if block_high_risk:
             self._config.block_high_risk = True
+        self._tier2_required = require_tier2
 
         self._tier2_fields = tier2_fields
         self._sfe_enabled = False
@@ -211,10 +224,11 @@ class PromptDefense:
             traversal=self._config.traversal,
             default_risk_level=default_risk_level,
             use_tier1_classification=enable_tier1,
-            block_high_risk=block_high_risk,
             cumulative_risk_thresholds=self._config.cumulative_risk_thresholds,
             annotate_boundary=annotate_boundary,
         )
+        self._sanitize_content = sanitize_content
+        self._annotate_boundary = annotate_boundary
 
         self._pattern_detector: PatternDetector = create_pattern_detector()
         self._tier2: Tier2Classifier | None = None
@@ -302,7 +316,10 @@ class PromptDefense:
 
     def warmup_tier2(self) -> None:
         if self._tier2:
-            self._tier2.warmup()
+            try:
+                self._tier2.warmup()
+            except Exception as e:
+                self._handle_tier2_unavailable(e)
         if self._sfe_enabled and self._sfe_custom_predictor is None:
             predictor = get_default_predictor()
             if predictor is None:
@@ -313,6 +330,34 @@ class PromptDefense:
 
     def is_tier2_ready(self) -> bool:
         return self._tier2.is_ready() if self._tier2 else False
+
+    def _handle_tier2_unavailable(self, err: Exception) -> None:
+        """Tier 2 enabled but the model/runtime failed to load. Fail closed when
+        require_tier2 is set; otherwise warn once per process and continue
+        Tier-1-only (fail open)."""
+        if self._tier2_required:
+            raise RuntimeError(
+                f"[defender] Tier 2 is required (require_tier2=True) but the model/runtime "
+                f"failed to load: {err}. Install the optional dependencies with "
+                f"`pip install stackone-defender[onnx]`."
+            )
+        global _tier2_unavailable_warned
+        if not _tier2_unavailable_warned:
+            _tier2_unavailable_warned = True
+            _logger.warning(
+                "[defender] Tier 2 unavailable (model/runtime failed to load); "
+                "continuing Tier-1-only. Reason: %s",
+                err,
+            )
+
+    @staticmethod
+    def _coverage_degraded(metadata: Any, depth_flag: dict[str, bool]) -> bool | None:
+        """True when Tier 1 detection coverage was reduced (depth/size limit hit,
+        or a wide payload's analysis was capped). Content is still returned in full."""
+        sm = metadata.size_metrics
+        if depth_flag.get("hit") or metadata.analysis_truncated or sm.size_limit_hit or sm.depth_limit_hit:
+            return True
+        return None
 
     def _resolve_tier3_provider(self) -> Tier3Provider | None:
         return self._tier3_custom_provider or get_default_tier3_provider()
@@ -459,7 +504,7 @@ class PromptDefense:
     def _finalize_allowed_and_risk(
         *,
         detections: list[str],
-        fields_sanitized: list[str],
+        tier1_flagged: list[str],
         tier2_has_threat: bool,
         tier2_idx: int,
         tier1_idx: int,
@@ -477,7 +522,7 @@ class PromptDefense:
 
         has_threats = (
             bool(detections)
-            or bool(fields_sanitized)
+            or bool(tier1_flagged)
             or (tier2_has_threat and not tier3_overrode_to_allow)
             or tier3_overrode_to_block
         )
@@ -515,7 +560,7 @@ class PromptDefense:
                 skip_reason = f"Tier 3 provider error: {e}"
 
         sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
-        detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
+        detections, _tier1_flagged, prm = self._tier1_metadata(sanitized)
 
         blocked = verdict is not None and self._is_tier3_block(verdict)
         risk_level: RiskLevel = "high" if blocked else "low"
@@ -529,12 +574,14 @@ class PromptDefense:
             risk_level=risk_level,
             sanitized=sanitized.sanitized,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=[],
             patterns_by_field=prm,
+            detected_field_count=len(prm),
             tier3=tier3_result,
             fields_dropped=[],
             truncated_at_depth=depth_flag["hit"] or None,
             latency_ms=(time.perf_counter() - start_time) * 1000,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     def defend_tool_result(self, value: Any, tool_name: str) -> DefenseResult:
@@ -603,9 +650,13 @@ class PromptDefense:
                     e,
                 )
 
+        # Own the boundary here so the sentence-cleaner can wrap its cleaned fields
+        # with the same markers the sanitizer used.
+        boundary = generate_data_boundary() if self._annotate_boundary else None
+
         t_tier1_start = time.perf_counter()
-        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
-        detections, fields_sanitized, prm = self._tier1_metadata(sanitized)
+        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name, boundary=boundary)
+        detections, tier1_flagged, prm = self._tier1_metadata(sanitized)
         tier1_ms = (time.perf_counter() - t_tier1_start) * 1000
 
         tier2 = (
@@ -632,7 +683,7 @@ class PromptDefense:
 
         risk_level, allowed = self._finalize_allowed_and_risk(
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            tier1_flagged=tier1_flagged,
             tier2_has_threat=tier2_has_threat,
             tier2_idx=tier2_idx,
             tier1_idx=tier1_idx,
@@ -641,13 +692,34 @@ class PromptDefense:
             tier3_override_block=tier3_override_block,
         )
 
+        # sanitized is a sentence-cleaned copy of the detect-only payload's high-risk
+        # fields (unless sanitize_content is off). fields_sanitized reports the fields
+        # the cleaner actually changed.
+        original = sanitized.sanitized
+        if (
+            self._sanitize_content
+            and self._tier2 is not None
+            and risk_level in ("high", "critical")
+            and tier2.high_risk_values
+        ):
+            cleaned, cleaned_fields = clean_high_risk_content(
+                original,
+                tier2.high_risk_values,
+                self._tier2,
+                self._config.tier2.high_risk_threshold,
+                boundary,
+            )
+        else:
+            cleaned, cleaned_fields = original, []
+
         return DefenseResult(
             allowed=allowed,
             risk_level=risk_level,
-            sanitized=sanitized.sanitized,
+            sanitized=cleaned,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=cleaned_fields,
             patterns_by_field=prm,
+            detected_field_count=len(prm),
             tier2_score=tier2.effective_score,
             tier2_raw_score=tier2.raw_score,
             tier2_aux_score=tier2.aux_score,
@@ -662,6 +734,8 @@ class PromptDefense:
             tier2_stats=tier2.tier2_stats,
             tier1_ms=tier1_ms,
             cold_load=tier2.cold_load,
+            tier2_available=tier2.tier2_available,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     def _defend_tool_result_sync(
@@ -694,9 +768,12 @@ class PromptDefense:
                     e,
                 )
 
+        # Own the boundary so the sentence-cleaner wraps cleaned fields the same way.
+        boundary = generate_data_boundary() if self._annotate_boundary else None
+
         # Tier 1: pattern-based sanitization on the original payload (matches TS 0.6.3).
         t_tier1_start = time.perf_counter()
-        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name)
+        sanitized = self._tool_sanitizer.sanitize(value, tool_name=tool_name, boundary=boundary)
 
         # Collect Tier 1 metadata
         prm = sanitized.metadata.patterns_removed_by_field
@@ -704,7 +781,7 @@ class PromptDefense:
         detections = list(dict.fromkeys(p for patterns in prm.values() for p in patterns))
 
         active_methods = {"role_stripping", "pattern_removal", "encoding_detection"}
-        fields_sanitized = [
+        tier1_flagged = [
             field for field, methods in mbf.items()
             if any(m in active_methods for m in methods)
         ]
@@ -748,7 +825,7 @@ class PromptDefense:
         # Tier 2 above-threshold (subject to multi-head veto).
         risk_level, allowed = self._finalize_allowed_and_risk(
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            tier1_flagged=tier1_flagged,
             tier2_has_threat=tier2_has_threat,
             tier2_idx=tier2_idx,
             tier1_idx=tier1_idx,
@@ -757,13 +834,33 @@ class PromptDefense:
             tier3_override_block=None,
         )
 
+        # sanitized is the sentence-cleaned copy of the detect-only payload.
+        # fields_sanitized reports the fields the cleaner actually changed.
+        original = sanitized.sanitized
+        if (
+            self._sanitize_content
+            and self._tier2 is not None
+            and risk_level in ("high", "critical")
+            and tier2.high_risk_values
+        ):
+            cleaned, cleaned_fields = clean_high_risk_content(
+                original,
+                tier2.high_risk_values,
+                self._tier2,
+                self._config.tier2.high_risk_threshold,
+                boundary,
+            )
+        else:
+            cleaned, cleaned_fields = original, []
+
         return DefenseResult(
             allowed=allowed,
             risk_level=risk_level,
-            sanitized=sanitized.sanitized,
+            sanitized=cleaned,
             detections=detections,
-            fields_sanitized=fields_sanitized,
+            fields_sanitized=cleaned_fields,
             patterns_by_field=prm,
+            detected_field_count=len(prm),
             tier2_score=tier2.effective_score,
             tier2_raw_score=tier2.raw_score,
             tier2_aux_score=tier2.aux_score,
@@ -777,6 +874,8 @@ class PromptDefense:
             tier2_stats=tier2.tier2_stats,
             tier1_ms=tier1_ms,
             cold_load=tier2.cold_load,
+            tier2_available=tier2.tier2_available,
+            coverage_degraded=self._coverage_degraded(sanitized.metadata, depth_flag),
         )
 
     # ------------------------------------------------------------------
@@ -801,6 +900,18 @@ class PromptDefense:
         ``PYTHONOPTIMIZE``.
         """
         out = _Tier2Outcome()
+
+        # Sample cold-start BEFORE warmup, then load the model. A load failure
+        # (missing optional deps) is a hard "Tier 2 unavailable" — fail closed when
+        # require_tier2, else warn once and continue Tier-1-only.
+        was_cold = not tier2.is_ready()
+        try:
+            tier2.warmup()
+        except Exception as e:
+            out.tier2_available = False
+            out.skip_reason = f"Tier 2 unavailable (model/runtime failed to load): {e}"
+            self._handle_tier2_unavailable(e)
+            return out
 
         fields_for_tier2 = (
             self._tier2_fields
@@ -836,7 +947,7 @@ class PromptDefense:
         t_infer_start = time.perf_counter()
         # Set now (before the failure early-return) so cold_load is a bool
         # whenever inference was attempted — success or failure (TS 0.7.4 parity).
-        out.cold_load = not tier2.is_ready()
+        out.cold_load = was_cold
         stats = BatchTokenStats()
         multihead_cfg = tier2.get_multihead_config()
         all_scores, all_pairs, infer_skip, unique_count = self._tier2_run_inference(
@@ -855,6 +966,16 @@ class PromptDefense:
         out.raw_score = agg.max_main
         out.max_sentence = agg.max_main_sentence
         self._tier2_finalize(tier2, out, agg, multihead_cfg)
+
+        # Collect the leaf values that scored high (per-string scores align with
+        # non-skipped strings, in string_ranges order) for the sentence-cleaner.
+        high_threshold = self._config.tier2.high_risk_threshold
+        scores_iter = iter(agg.per_string_scores)
+        for i, (start, _end) in enumerate(string_ranges):
+            if start < 0:
+                continue
+            if next(scores_iter, 0.0) >= high_threshold:
+                out.high_risk_values.add(strings[i])
 
         now = time.perf_counter()
         out.phase_timings = PhaseTimings(

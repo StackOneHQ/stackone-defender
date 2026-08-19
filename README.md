@@ -90,10 +90,12 @@ else:
 
 ### Tier 1 — Pattern detection (sync, ~1 ms)
 
-- **Unicode normalization** — homoglyph resistance (e.g. Cyrillic `а` → ASCII `a`)
-- **Role stripping** — `SYSTEM:`, `ASSISTANT:`, `<system>`, `[INST]`, etc.
-- **Pattern removal** — phrases like “ignore previous instructions”
-- **Encoding detection** — suspicious Base64/URL-shaped payloads
+Detects (never rewrites) injection signals and records them as evidence:
+
+- **Unicode normalization** (for matching only) — homoglyph resistance (e.g. Cyrillic `а` → ASCII `a`)
+- **Role markers** — `SYSTEM:`, `ASSISTANT:`, `<system>`, `[INST]`, etc.
+- **Instruction-override patterns** — phrases like “ignore previous instructions”
+- **Encoding detection** — decode-then-detect: a decoded payload is escalated only if it trips a real attack pattern
 - **Boundary annotation (opt-in)** — `[UD-{id}]…[/UD-{id}]` wrappers when `annotate_boundary=True` (npm: `annotateBoundary`). Use `generate_boundary_instructions` from the package root in prompts when you enable wrapping.
 
 ### Tier 2 — ML classification (ONNX)
@@ -107,7 +109,7 @@ Packed-chunk MiniLM classifier (int8 ONNX ~22 MB, bundled):
 ### Optional SFE preprocessor
 
 - `use_sfe=True` runs a field-level FastText pass to build a **classifier-only** view of the payload
-- **Tier 1** always sanitizes the **original** tool value; **`sanitized`** in `DefenseResult` is unchanged by SFE drops
+- **Tier 1** detects on the raw tool value; SFE drops are classifier-only and never remove fields from the returned `sanitized` payload
 - **Tier 2** extracts strings from the SFE-filtered tree; `fields_dropped` lists paths omitted from that extraction (not removed from `sanitized`)
 - Fails open if the runtime/model is unavailable: payload continues unfiltered
 
@@ -126,7 +128,7 @@ Authoritative LLM-based classification for the cases Tier 2 finds ambiguous. The
 
 Two modes, selected via `defender_mode`:
 - **`"cascade"`** (default): Tier 1 → Tier 2 → Tier 3, with Tier 3 invoked only when the Tier 2 effective score falls in the gray band (default `[0.3, 0.85)`). The Tier 3 verdict overrides Tier 2 on the escalated chunk — a `block` forces a block, an `allow` rescues it. Outside the band defender skips the round trip.
-- **`"tier3_only"`**: skip Tier 2; the block/allow decision is the Tier 3 verdict alone. Tier 1 still sanitizes the returned `sanitized` payload.
+- **`"tier3_only"`**: skip Tier 2; the block/allow decision is the Tier 3 verdict alone. Tier 1 still runs detection; the returned `sanitized` payload is the original content.
 
 Register a provider once at startup, then opt in per instance:
 
@@ -163,8 +165,9 @@ defense = create_prompt_defense(
 
 ### `allowed` vs `risk_level`
 
+- **`DefenseResult.sanitized`** is a **sentence-level cleaned** copy of the tool result (high-scoring sentences dropped within high-risk fields, optionally `[UD-…]` boundary-wrapped). Cleaning is best-effort (capped by detection) — still gate on `allowed`. Set `sanitize_content=False` for pure detect-and-gate: `sanitized` is then the input verbatim.
 - Use **`allowed`** for gating when `block_high_risk=True`: `False` means do not pass `sanitized` to the model as-is.
-- **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"medium"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
+- **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"low"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
 
 | Level | Typical trigger |
 |-------|------------------|
@@ -180,8 +183,9 @@ defense = create_prompt_defense(
 defense = create_prompt_defense(
     enable_tier1=True,
     enable_tier2=True,
+    require_tier2=False,  # True: raise if Tier 2 can't load (fail closed) instead of degrading to Tier 1
     block_high_risk=False,
-    default_risk_level="medium",
+    default_risk_level="low",
     annotate_boundary=False,  # True: wrap risky strings with [UD-…] tags (npm: annotateBoundary)
     tier2_fields=["subject", "body", "snippet"],  # optional: scope Tier 2 to these JSON keys (default: all strings)
     use_sfe=True,  # optional: enable semantic field extractor preprocessing
@@ -203,18 +207,31 @@ from dataclasses import dataclass, field
 
 @dataclass
 class DefenseResult:
-    allowed: bool
-    risk_level: RiskLevel
-    sanitized: Any
-    detections: list[str]
-    fields_sanitized: list[str]
-    patterns_by_field: dict[str, list[str]]
+    allowed: bool                             # gating decision (respects block_high_risk)
+    risk_level: RiskLevel                     # diagnostic; max of Tier 1 / Tier 2
+    sanitized: Any                            # sentence-cleaned copy (input verbatim when sanitize_content=False); dropped runs leave a [CONTENT SANITISED] marker; best-effort, still gate on allowed
+    detections: list[str]                     # Tier 1 pattern names detected
+    fields_sanitized: list[str]               # fields whose content the cleaner changed in sanitized (empty when sanitize_content=False or no Tier 2); for detections read detections/patterns_by_field
+    patterns_by_field: dict[str, list[str]]   # patterns detected per field
+    detected_field_count: int                 # count of fields with a Tier-1 detection (keys of patterns_by_field); threat-count signal (fields_sanitized len no longer tracks this)
     tier2_score: float | None = None
+    tier2_raw_score: float | None = None
+    tier2_aux_score: float | None = None      # multi-head models only
+    tier2_multihead_blocked: bool | None = None
     tier2_skip_reason: str | None = None
     max_sentence: str | None = None
+    tier3: Tier3Result | None = None          # present when Tier 3 ran
     fields_dropped: list[str] = field(default_factory=list)
     truncated_at_depth: bool | None = None
     latency_ms: float = 0.0
+    # Cost telemetry — present only when the batched Tier 2 classifier ran
+    phase_timings: PhaseTimings | None = None       # prepare / infer / aggregate ms
+    tier2_stats: Tier2Stats | None = None           # string/chunk/unique counts, real/padded tokens
+    tier1_ms: float | None = None
+    cold_load: bool | None = None
+    # Operational signals
+    tier2_available: bool | None = None       # False when Tier 2 enabled but failed to load
+    coverage_degraded: bool | None = None      # True when Tier 1 detection coverage was capped
 ```
 
 ### `defense.defend_tool_results(items)`
@@ -229,7 +246,7 @@ results = defense.defend_tool_results([
 ])
 for r in results:
     if not r.allowed:
-        print("Blocked:", ", ".join(r.fields_sanitized))
+        print("Blocked:", ", ".join(r.detections))
 ```
 
 ### `await defense.defend_tool_results_async(items)`
@@ -274,7 +291,7 @@ sanitized = run_tool_and_defend(gmail_api.get_message(msg_id), "gmail_get_messag
 
 ## Risky field detection
 
-Only **string** values under configured “risky” keys are scanned and sanitized. [`RiskyFieldConfig`](https://github.com/StackOneHQ/stackone-defender/blob/main/src/stackone_defender/types.py) provides global names/patterns plus **`tool_overrides`** (wildcard tool names → field list), same idea as the npm package.
+Only **string** values under configured “risky” keys are Tier-1-scanned — including strings nested inside arrays/objects under those keys (e.g. `{"name": ["…"]}`). [`RiskyFieldConfig`](https://github.com/StackOneHQ/stackone-defender/blob/main/src/stackone_defender/types.py) provides global names/patterns plus **`tool_overrides`** (wildcard tool names → field list), same idea as the npm package. (Tier 2 scans all extracted strings regardless.)
 
 | Tool pattern | Scanned fields |
 |--------------|----------------|

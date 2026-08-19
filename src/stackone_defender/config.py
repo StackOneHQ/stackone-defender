@@ -54,7 +54,7 @@ DEFAULT_TRAVERSAL_CONFIG = TraversalConfig(
     max_depth=10,
     max_size=10 * 1024 * 1024,
     large_array_threshold=1000,
-    skip_large_arrays=True,
+    skip_large_arrays=False,  # deprecated legacy cap; detection now bounded by max_size
 )
 
 DEFAULT_CUMULATIVE_RISK_THRESHOLDS: dict[str, int | float] = {
@@ -64,6 +64,11 @@ DEFAULT_CUMULATIVE_RISK_THRESHOLDS: dict[str, int | float] = {
     "medium_fraction": 0.25,
     "patterns_fraction": 0.25,
 }
+
+# Per-field cap (characters) on the text Tier 1 runs heavy regex / encoding
+# detection over. ReDoS guard — content past the cap is not analysed and
+# metadata.analysis_truncated is set. The full content is still returned.
+DEFAULT_MAX_FIELD_ANALYSIS_LENGTH = 50000
 
 DEFAULT_TIER2_CONFIG = Tier2Config(
     high_risk_threshold=0.8,
