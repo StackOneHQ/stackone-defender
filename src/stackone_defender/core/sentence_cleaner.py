@@ -1,8 +1,9 @@
 """Sentence-level cleaning for the return-both ``sanitized`` copy.
 
-Within a high-risk field, drop the sentences that themselves score high and keep
-the rest. Best-effort only (capped by detection) — callers still gate on ``allowed``.
-Runs after Tier 2 so per-sentence scores are available.
+Within a high-risk field, replace each contiguous run of high-scoring sentences
+with a marker and keep the rest, so a mid-content cut stays visible to consumers
+that read only ``sanitized``. Best-effort only (capped by detection) — callers
+still gate on ``allowed``. Runs after Tier 2 so per-sentence scores are available.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ from ..sanitizers.role_stripper import strip_role_markers
 from ..types import DataBoundary
 from ..utils.boundary import strip_boundary_patterns, wrap_with_boundary
 
+#: Inline marker left where a contiguous high-risk run was dropped.
+CONTENT_SANITISED_MARKER = "[CONTENT SANITISED]"
+
 
 def _clean_field(raw: str, tier2: Tier2Classifier, high_threshold: float) -> str:
     sentences = _split_into_sentences(raw)
@@ -22,16 +26,25 @@ def _clean_field(raw: str, tier2: Tier2Classifier, high_threshold: float) -> str
     if len(sentences) <= 1:
         return raw
     scores = tier2.classify_chunks_batch(sentences)
-    kept = [s for s, sc in zip(sentences, scores, strict=False) if sc < high_threshold]
-    # Every sentence flagged — drop them all rather than blocking the field wholesale.
-    if not kept:
-        return ""
+    flagged = [(scores[i] if i < len(scores) else 0.0) >= high_threshold for i in range(len(sentences))]
     # Nothing dropped — return the field verbatim, never a reconstruction (a
     # rebuilt join can differ from the original and report a spurious change).
-    if len(kept) == len(sentences):
+    if not any(flagged):
         return raw
-    # Strip role markers from survivors as defense-in-depth against a sub-threshold marker.
-    return strip_role_markers(" ".join(kept)).strip()
+    # Collapse each contiguous high-risk run into one marker, keeping surviving
+    # sentences in place. All-high field → just the marker.
+    parts: list[str] = []
+    in_run = False
+    for sentence, is_high in zip(sentences, flagged, strict=False):
+        if is_high:
+            if not in_run:
+                parts.append(CONTENT_SANITISED_MARKER)
+            in_run = True
+            continue
+        # Strip role markers from survivors as defense-in-depth against a sub-threshold marker.
+        parts.append(strip_role_markers(sentence).strip())
+        in_run = False
+    return " ".join(p for p in parts if p).strip()
 
 
 def clean_high_risk_content(

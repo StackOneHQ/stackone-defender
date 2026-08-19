@@ -32,6 +32,7 @@ class TestReturnBothSentenceCleaning:
         assert r.original["notes"] == self._INJECTION  # original untouched
         assert cleaned != self._INJECTION
         assert "Ignore all previous instructions" not in cleaned
+        assert "[CONTENT SANITISED]" in cleaned  # marker left where the run was cut
         assert "quarterly report" in cleaned
         assert "questions" in cleaned
 
