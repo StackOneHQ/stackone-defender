@@ -168,6 +168,7 @@ defense = create_prompt_defense(
 - **Return-both (v0.8.0):** `DefenseResult.sanitized` is a **sentence-level cleaned** copy (high-scoring sentences dropped within high-risk fields), and `DefenseResult.original` is the untouched payload (optionally `[UD-…]` boundary-wrapped). Cleaning is best-effort (capped by detection) — still gate on `allowed`. Set `sanitize_content=False` for pure detect-and-gate: `sanitized` then equals `original`.
 - Use **`allowed`** for gating when `block_high_risk=True`: `False` means do not pass `sanitized` to the model as-is.
 - **`risk_level`** is diagnostic: it starts at `default_risk_level` (default `"low"`) and is **escalated** by Tier 1 / Tier 2 signals — not reduced. Use it for logging, not as the sole block signal unless you implement your own policy.
+- **Large payloads:** Tier 1 detection is bounded by the call-scoped `max_size` budget (10MB). Content past the budget is **returned unanalysed** (never dropped) and flagged via `coverage_degraded` — so with **Tier 2 off**, unanalysed content can reach the model. Tier 2 (when enabled) still scans every string. `skip_large_arrays`/`large_array_threshold` are deprecated opt-ins for the old per-container cap.
 
 | Level | Typical trigger |
 |-------|------------------|

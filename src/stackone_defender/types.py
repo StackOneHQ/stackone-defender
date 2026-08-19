@@ -380,6 +380,8 @@ class DefenseResult:
     # False when Tier 2 was enabled but the model/runtime failed to load (silently
     # degraded to Tier 1 only). Omitted (None) when Tier 2 loaded fine or is disabled.
     tier2_available: bool | None = None
-    # True when Tier 1 detection coverage was reduced on this call (depth/size limit
-    # hit, or analysis truncated on a wide payload). Content is still returned in full.
+    # True when Tier 1 detection coverage was reduced on this call — the call-scoped
+    # max_size detection budget or a depth limit was hit, or a field exceeded the
+    # analysis cap. Content is still returned in full and Tier 2 (when enabled) still
+    # scanned every string. None (not False) when coverage was complete — branch on `is True`.
     coverage_degraded: bool | None = None
