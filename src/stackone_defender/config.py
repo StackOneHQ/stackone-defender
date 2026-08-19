@@ -54,7 +54,7 @@ DEFAULT_TRAVERSAL_CONFIG = TraversalConfig(
     max_depth=10,
     max_size=10 * 1024 * 1024,
     large_array_threshold=1000,
-    skip_large_arrays=True,
+    skip_large_arrays=False,  # deprecated legacy cap; detection now bounded by max_size
 )
 
 DEFAULT_CUMULATIVE_RISK_THRESHOLDS: dict[str, int | float] = {

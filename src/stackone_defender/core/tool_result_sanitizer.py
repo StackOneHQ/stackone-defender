@@ -141,16 +141,19 @@ class ToolResultSanitizer:
     # Recursive traversal
     # ------------------------------------------------------------------
 
-    def _detection_scan_limit(self, size: int, metadata: SanitizationMetadata) -> int:
-        """Detection scan limit for a container of ``size`` entries. Past the limit
-        entries are still traversed (structure, prototype-pollution stripping,
-        Tier 2's own walk); only the per-entry Tier 1 analysis is skipped. Flags
-        ``analysis_truncated`` when it caps. No data is ever dropped."""
-        is_large = self._traversal.skip_large_arrays and size > self._traversal.large_array_threshold
-        limit = min(100, size) if is_large else size
-        if is_large and limit < size:
+    def _detection_allowed(self, index: int, size: int, metadata: SanitizationMetadata) -> bool:
+        """Whether Tier 1 detection may run for entry ``index`` of a container of
+        ``size``. Primary bound is the call-scoped byte budget (``max_size``). The
+        deprecated ``skip_large_arrays`` per-container cap is honored only when
+        explicitly enabled. Flags ``analysis_truncated`` when detection is skipped;
+        no data is ever dropped."""
+        if metadata.size_metrics.estimated_bytes >= self._traversal.max_size:
             metadata.analysis_truncated = True
-        return limit
+            return False
+        if self._traversal.skip_large_arrays and size > self._traversal.large_array_threshold and index >= 100:
+            metadata.analysis_truncated = True
+            return False
+        return True
 
     def _sanitize_value(
         self,
@@ -203,11 +206,10 @@ class ToolResultSanitizer:
     ) -> list:
         # array_count is incremented in update_size_metrics (via _sanitize_value,
         # and at the direct call sites below that bypass it).
-        scan_limit = self._detection_scan_limit(len(arr), metadata)
         result = []
         for i, item in enumerate(arr):
             ctx = self._child_context(context, f"{context.path}[{i}]", context.field_name)
-            result.append(self._sanitize_value(item, ctx, metadata, depth + 1, detect and i < scan_limit))
+            result.append(self._sanitize_value(item, ctx, metadata, depth + 1, detect and self._detection_allowed(i, len(arr), metadata)))
         return result
 
     def _sanitize_object(
@@ -226,9 +228,8 @@ class ToolResultSanitizer:
             return self._sanitize_wrapped(obj, context, metadata, depth, detect)
 
         result: dict = {}
-        scan_limit = self._detection_scan_limit(len(obj), metadata)
         for i, (key, val) in enumerate(obj.items()):
-            entry_detect = detect and i < scan_limit
+            entry_detect = detect and self._detection_allowed(i, len(obj), metadata)
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
                 continue
@@ -254,9 +255,8 @@ class ToolResultSanitizer:
     ) -> dict:
         result: dict = {}
         data_keys = {"data", "results", "items", "records"}
-        scan_limit = self._detection_scan_limit(len(obj), metadata)
         for i, (key, val) in enumerate(obj.items()):
-            entry_detect = detect and i < scan_limit
+            entry_detect = detect and self._detection_allowed(i, len(obj), metadata)
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
                 continue
@@ -281,9 +281,8 @@ class ToolResultSanitizer:
         detect: bool = True,
     ) -> dict:
         result: dict = {}
-        scan_limit = self._detection_scan_limit(len(obj), metadata)
         for i, (key, val) in enumerate(obj.items()):
-            entry_detect = detect and i < scan_limit
+            entry_detect = detect and self._detection_allowed(i, len(obj), metadata)
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
                 continue

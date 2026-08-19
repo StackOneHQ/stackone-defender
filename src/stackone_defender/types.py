@@ -254,9 +254,12 @@ class RiskyFieldConfig:
 @dataclass
 class TraversalConfig:
     max_depth: int = 10
-    max_size: int = 10 * 1024 * 1024  # 10MB
+    max_size: int = 10 * 1024 * 1024  # 10MB — also the call-scoped Tier 1 detection budget
+    # Deprecated: superseded by the call-scoped ``max_size`` detection budget. When
+    # ``skip_large_arrays`` is enabled, containers larger than this cap Tier 1
+    # detection at the first 100 entries. Off by default; kept for compatibility.
     large_array_threshold: int = 1000
-    skip_large_arrays: bool = True
+    skip_large_arrays: bool = False
 
 
 @dataclass
