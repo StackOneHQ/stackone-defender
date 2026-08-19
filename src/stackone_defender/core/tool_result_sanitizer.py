@@ -194,7 +194,8 @@ class ToolResultSanitizer:
         depth: int,
         detect: bool = True,
     ) -> list:
-        metadata.size_metrics.array_count += 1
+        # array_count is incremented in update_size_metrics (via _sanitize_value,
+        # and at the direct call sites below that bypass it).
         scan_limit = self._detection_scan_limit(len(arr), metadata)
         result = []
         for i, item in enumerate(arr):
@@ -210,7 +211,7 @@ class ToolResultSanitizer:
         depth: int,
         detect: bool = True,
     ) -> dict:
-        metadata.size_metrics.object_count += 1
+        # object_count is incremented once in update_size_metrics (via _sanitize_value).
 
         if is_paginated_response(obj):
             return self._sanitize_paginated(obj, context, metadata, depth, detect)
@@ -218,9 +219,8 @@ class ToolResultSanitizer:
             return self._sanitize_wrapped(obj, context, metadata, depth, detect)
 
         result: dict = {}
-        entries = list(obj.items())
-        scan_limit = self._detection_scan_limit(len(entries), metadata)
-        for i, (key, val) in enumerate(entries):
+        scan_limit = self._detection_scan_limit(len(obj), metadata)
+        for i, (key, val) in enumerate(obj.items()):
             entry_detect = detect and i < scan_limit
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
@@ -247,9 +247,8 @@ class ToolResultSanitizer:
     ) -> dict:
         result: dict = {}
         data_keys = {"data", "results", "items", "records"}
-        entries = list(obj.items())
-        scan_limit = self._detection_scan_limit(len(entries), metadata)
-        for i, (key, val) in enumerate(entries):
+        scan_limit = self._detection_scan_limit(len(obj), metadata)
+        for i, (key, val) in enumerate(obj.items()):
             entry_detect = detect and i < scan_limit
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
@@ -259,6 +258,8 @@ class ToolResultSanitizer:
                 self._detect_in_key(key, field_path, context, metadata)
             field_ctx = self._child_context(context, field_path, key)
             if key in data_keys and isinstance(val, list):
+                # Direct _sanitize_array bypasses _sanitize_value, so count it here.
+                update_size_metrics(metadata.size_metrics, val)
                 result[key] = self._sanitize_array(val, field_ctx, metadata, depth + 1, entry_detect)
             else:
                 result[key] = self._sanitize_value(val, field_ctx, metadata, depth + 1, entry_detect)
@@ -273,9 +274,8 @@ class ToolResultSanitizer:
         detect: bool = True,
     ) -> dict:
         result: dict = {}
-        entries = list(obj.items())
-        scan_limit = self._detection_scan_limit(len(entries), metadata)
-        for i, (key, val) in enumerate(entries):
+        scan_limit = self._detection_scan_limit(len(obj), metadata)
+        for i, (key, val) in enumerate(obj.items()):
             entry_detect = detect and i < scan_limit
             if key in DANGEROUS_KEYS:
                 self._record_dangerous_key(metadata, context.path, key)
@@ -285,6 +285,8 @@ class ToolResultSanitizer:
                 self._detect_in_key(key, field_path, context, metadata)
             field_ctx = self._child_context(context, field_path, key)
             if get_wrapped_data({key: val}) is not None:
+                # Direct _sanitize_array bypasses _sanitize_value, so count it here.
+                update_size_metrics(metadata.size_metrics, val)
                 result[key] = self._sanitize_array(val, field_ctx, metadata, depth + 1, entry_detect)
             else:
                 result[key] = self._sanitize_value(val, field_ctx, metadata, depth + 1, entry_detect)
