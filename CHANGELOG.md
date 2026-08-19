@@ -1,46 +1,24 @@
 # Changelog
 
-## [0.8.0](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.4...stackone-defender-v0.8.0) (2026-08-19)
+## [0.8.2](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.4...stackone-defender-v0.8.2) (2026-08-19)
 
-
-### ⚠ BREAKING CHANGES
-
-* **ENG-1084:** `sanitized` is no longer redacted/blocked — gate on `allowed`. `default_risk_level` defaults to `low`. The `block_high_risk` sanitizer option and the `pattern_remover` / `role_stripper` / `sanitizer` modules are removed.
 
 ### Features
 
-* **ENG-1084:** detect-and-gate — stop mutating tool-result content (v0.8.0) ([e88f544](https://github.com/StackOneHQ/defender-py/commit/e88f544d513b7fb81b5043e026ed423aa829f489))
-* **ENG-1084:** detect-and-gate + sentence-level cleaning (v0.8.0) ([60b01d0](https://github.com/StackOneHQ/defender-py/commit/60b01d0117c04106a3017dc4bf536cce6cc7a6c4))
-* **ENG-1084:** mark dropped runs with [CONTENT SANITISED] in cleaned copy ([fdcdb94](https://github.com/StackOneHQ/defender-py/commit/fdcdb94e27698ac71a8dd8933d54ad47455be376))
+* **ENG-1084:** detect-and-gate + sentence-level cleaning — Tier 1 detects without mutating content (gate on `allowed`); `sanitized` is a sentence-cleaned copy of high/critical fields ([60b01d0](https://github.com/StackOneHQ/defender-py/commit/60b01d0117c04106a3017dc4bf536cce6cc7a6c4))
+* **ENG-1084:** mark dropped runs with `[CONTENT SANITISED]` in the cleaned copy ([fdcdb94](https://github.com/StackOneHQ/defender-py/commit/fdcdb94e27698ac71a8dd8933d54ad47455be376))
+* **ENG-1084:** `detected_field_count` threat-count signal; object-key scanning; Tier 2 availability (`require_tier2` / `tier2_available`) ([6f1b52a](https://github.com/StackOneHQ/defender-py/commit/6f1b52afd9d2932aab9462776c102d05e5bd9626))
 * **ENG-1084:** NFKC-fold unicode before Tier 2 classification ([50741ee](https://github.com/StackOneHQ/defender-py/commit/50741eeb7c9d7e435a2a504d2f83c3bd9b2b8c04))
-* **ENG-1084:** return-both — sentence-level cleaned sanitized + original ([f4aa1bd](https://github.com/StackOneHQ/defender-py/commit/f4aa1bdc7eba795f4154777a9f9cf791e9f342b6))
 
 
 ### Bug Fixes
 
-* **ENG-1084:** add token-degeneracy (OOD) guard to Tier 2 scoring ([f450992](https://github.com/StackOneHQ/defender-py/commit/f45099241e36ee4210daaf39f2573c2a88d3071b))
-* **ENG-1084:** address review — warmup fail-open + dict-subclass stripping ([f49ffcf](https://github.com/StackOneHQ/defender-py/commit/f49ffcf6e93e322623447d217994cc8215e02410))
-* **ENG-1084:** count objects/arrays once + iterate obj.items() directly ([26c7eec](https://github.com/StackOneHQ/defender-py/commit/26c7eecb10f55be0a9e7cb614a67629fa485d199))
-* **ENG-1084:** fields_sanitized reports Tier-2-cleaned fields, not Tier-1 detections ([b3ca53a](https://github.com/StackOneHQ/defender-py/commit/b3ca53ac2a443fdaa892c807d076a5bcd0b02763))
-* **ENG-1084:** gate sentence-cleaning on aggregate risk; drop whole-field block ([9e25335](https://github.com/StackOneHQ/defender-py/commit/9e2533576f90574f8bab5476728d79c5275b9060))
-* **ENG-1084:** normalize decorative runs before Tier 2 classification ([c2c5d1d](https://github.com/StackOneHQ/defender-py/commit/c2c5d1d5a1bc999417a5f76f34bc74a4ddcfdc6d))
-* **ENG-1084:** return field verbatim when the cleaner drops no sentences ([93d664e](https://github.com/StackOneHQ/defender-py/commit/93d664e74210f0f9d8b844cd7c20bdde8d5a8878))
-* **ENG-1084:** scan strings in risky array fields + add detected_field_count ([6f1b52a](https://github.com/StackOneHQ/defender-py/commit/6f1b52afd9d2932aab9462776c102d05e5bd9626))
-
-
-### Documentation
-
-* **ENG-1084:** call out the 0.7.4 large-array truncation as a fixed data-loss bug ([5fc9921](https://github.com/StackOneHQ/defender-py/commit/5fc9921413274725c56d595ac4d8859bf655a7eb))
-* **ENG-1084:** complete the DefenseResult field list + require_tier2 in README ([35c9e7b](https://github.com/StackOneHQ/defender-py/commit/35c9e7bb1439f230848969589a0f6699d3f036c6))
-* **ENG-1084:** document detected_field_count, marker, array-field scanning ([5b07c76](https://github.com/StackOneHQ/defender-py/commit/5b07c7630745c2c61b0042568cabe9222c2a4f9e))
-* **ENG-1084:** drop migration/version bullets from README ([d62b1e4](https://github.com/StackOneHQ/defender-py/commit/d62b1e472b77290e8424475c915de96aa8e69bb5))
-* **ENG-1084:** fields_sanitized now means cleaned fields; add original field; fix stale sanitized=original lines ([55d5b9e](https://github.com/StackOneHQ/defender-py/commit/55d5b9e4630052f96abccbd87c3408afb168fa3d))
-* **ENG-1084:** note large-payload coverage posture + clarify coverage_degraded ([fa3e127](https://github.com/StackOneHQ/defender-py/commit/fa3e127e86b8edebf4f2518df2d8aeae294f2d20))
-
-
-### Miscellaneous Chores
-
-* **ENG-1084:** release stackone-defender 0.8.0 ([e7492a9](https://github.com/StackOneHQ/defender-py/commit/e7492a9d7641bb21cca0c5f049dc107fddb1a58c))
+* **ENG-1084:** return large arrays in full — 0.7.4 truncated arrays >1000 items to 100 + a sentinel, dropping the rest; Tier 1 detection is now bounded by the `max_size` budget (flagged via `coverage_degraded`), never drops data ([26c7eec](https://github.com/StackOneHQ/defender-py/commit/26c7eecb10f55be0a9e7cb614a67629fa485d199))
+* **ENG-1084:** scan strings inside risky array fields (`{"name": [INJ]}`) ([6f1b52a](https://github.com/StackOneHQ/defender-py/commit/6f1b52afd9d2932aab9462776c102d05e5bd9626))
+* **ENG-1084:** evidence-driven encoding escalation; token-degeneracy (OOD) guard; decorative-run normalization ([f450992](https://github.com/StackOneHQ/defender-py/commit/f45099241e36ee4210daaf39f2573c2a88d3071b))
+* **ENG-1084:** gate sentence-cleaning on aggregate risk; verbatim when nothing is dropped ([9e25335](https://github.com/StackOneHQ/defender-py/commit/9e2533576f90574f8bab5476728d79c5275b9060))
+* **ENG-1084:** count objects/arrays once in size metrics + iterate `obj.items()` directly ([26c7eec](https://github.com/StackOneHQ/defender-py/commit/26c7eecb10f55be0a9e7cb614a67629fa485d199))
+* **ENG-1084:** warmup fail-open + dict-subclass stripping ([f49ffcf](https://github.com/StackOneHQ/defender-py/commit/f49ffcf6e93e322623447d217994cc8215e02410))
 
 ## [0.7.4](https://github.com/StackOneHQ/defender-py/compare/stackone-defender-v0.7.3...stackone-defender-v0.7.4) (2026-08-13)
 
