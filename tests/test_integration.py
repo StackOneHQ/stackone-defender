@@ -692,6 +692,9 @@ class TestDetectAndGateHardening:
         result = sanitizer.sanitize({"data": items}, tool_name="documents_list_files")
         assert len(result.sanitized["data"]) == 51  # no data loss
         assert result.metadata.analysis_truncated is True  # budget spent → coverage capped
+        # Budget is spent in traversal order (a prefix): the trailing injection is past
+        # the budget, so Tier 1 does NOT catch it. Pinned so the property is explicit.
+        assert not any(k.startswith("data[50]") for k in result.metadata.patterns_removed_by_field)
 
     def test_deprecated_skip_large_arrays_opt_in_still_caps(self):
         sanitizer = ToolResultSanitizer(
